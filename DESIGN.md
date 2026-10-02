@@ -3,7 +3,7 @@
 The user pins the title Donate, an animated ASCII coffee logo, a black-and-white palette and minimal layouts. These explicit choices supersede the original token cloud and orbital art direction.
 
 ## World
-Black (#0b0b0b), white and neutral grays. No colored accents, gradients, decorative icons, marketing copy or canned explanations. The donation form is the public page; the admin shows only the controls needed for the selected task.
+Black (#0b0b0b), white and neutral grays. No colored accents, gradients, ornamental icons, marketing copy or canned explanations. Necessary payment, account and status icons share a 24px grid, 1.5px outline and no filled decoration. The donation form is the public page; the admin shows only the controls needed for the selected task.
 
 ## Type and material
 System sans-serif for labels and forms, actual monospace characters for the coffee cup and amounts. Thin gray borders, clear spacing and white primary actions with black text. No ornamental display type.

@@ -1,6 +1,6 @@
 # Donate
 
-自托管开源项目捐赠站。黑白界面、动态 ASCII 咖啡 logo，支持金额输入和预设金额；首页没有后台导航。
+自托管开源项目捐赠站。黑白界面、动态 ASCII 咖啡 logo，支持金额输入、预设金额和随机金额；首页没有后台导航。
 
 Go 单文件程序内嵌网页，SQLite 保存配置、捐款和通知队列。不需要 Node.js、外部数据库或 C 运行库。支持 Linux amd64 / arm64；提供标准 `.deb`、`.rpm`、`.apk`、Arch Linux 包和便携压缩包。
 
@@ -73,6 +73,14 @@ curl -H 'Authorization: Bearer YOUR_STATS_TOKEN' http://localhost:8080/api/priva
 ```
 
 `/api/stats` 提供公开聚合统计；`/api/private/stats` 使用后台配置的统计令牌，不返回捐款人个人信息。后台另有捐款列表、筛选、手动录入和 CSV 导出。详细接口见 [接口约定](docs/CONTRACT.md)。
+
+后台「公开徽章」可预览捐赠 SVG，复制 GitHub README、HTML 或图片地址。支持黑色、白色和透明背景，收据或横条版式、语言、币种、统计周期和短标题；图片只包含已确认捐款的总额与笔数，不包含捐赠者资料，各币种分别统计。
+
+```markdown
+[![Donate](https://donate.example.com/badge.svg?currency=USD&lang=en&period=30d&layout=compact)](https://donate.example.com/)
+```
+
+公开图片地址 `/badge.svg` 无需令牌，缓存 5 分钟；GitHub 可能另有图片缓存。`period` 为 `all`、`7d`、`30d` 或 `year`，后者从 UTC 当年 1 月 1 日起算。`layout` 为 `receipt` 或 `compact`，`theme` 为 `dark`、`light` 或 `transparent`，`width` 为 240–1200。`lang` 支持 `zh-CN`、`zh-TW` 和 `en`；`title`、`amount_label`、`count_label` 可分别自定义最多 40、24、24 字的单行文字。
 
 ## Docker
 

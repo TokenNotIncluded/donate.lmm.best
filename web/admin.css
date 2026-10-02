@@ -192,3 +192,20 @@ details[open] > summary { margin-bottom: 16px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; scroll-behavior: auto !important; }
 }
+
+.badge-builder { display: grid; grid-template-columns: minmax(260px, 320px) minmax(0, 1fr); align-items: start; gap: 36px; }
+#badge-form { gap: 18px 16px; }
+.badge-output { min-width: 0; }
+.badge-output h2 { margin-bottom: 6px; }
+.badge-scope { margin-bottom: 18px; font-size: 12px; }
+.badge-preview-frame { display: flex; align-items: center; justify-content: center; min-height: 128px; margin-bottom: 22px; border: 1px solid var(--line); }
+.badge-preview-frame[data-theme=light], .badge-preview-frame[data-theme=transparent] { background: #fff; }
+#badge-preview { display: block; max-width: 100%; height: auto; }
+#badge-share { gap: 8px; }
+#badge-share svg { width: 16px; height: 16px; flex-shrink: 0; }
+#badge-share .quiet { padding: 10px 12px; font-size: 12px; }
+.badge-code-field { margin-top: 20px; }
+#badge-code { min-height: 108px; font-family: var(--mono); font-size: 11px; overflow-wrap: anywhere; }
+@media (max-width: 1000px) {
+  .badge-builder { grid-template-columns: 1fr; gap: 30px; }
+}

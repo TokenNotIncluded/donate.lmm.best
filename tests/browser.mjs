@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import {execFileSync, spawn} from 'node:child_process';
 import {existsSync} from 'node:fs';
-import {mkdir, mkdtemp, rm} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
 import {createServer} from 'node:net';
@@ -39,6 +39,14 @@ async function textIncludes(page, selector, text) {
 async function noOverflow(page) {
   const size = await page.evaluate(() => ({width:innerWidth, content:document.documentElement.scrollWidth}));
   assert.ok(size.content <= size.width + 1, `Horizontal overflow: ${size.content} > ${size.width}`);
+}
+async function paintedIcon(page,selector) {
+  await page.waitForFunction(selector => {
+    const icon=document.querySelector(selector);
+    if(!icon)return false;
+    const box=icon.getBBox();
+    return box.width>0 && box.height>0;
+  },selector);
 }
 async function coffeeMotion(page) {
   const logo = page.locator('pre.coffee-logo').first();
@@ -325,6 +333,47 @@ async function donorLifecycleScenarios() {
     await context.close();
   }
 }
+async function checkoutVisualScenarios() {
+  const context=await browser.newContext({locale:'en-US',viewport:{width:1440,height:1050}});
+  const page=await context.newPage();
+  watch(page);
+  const site=await (await fetch(`${base}/api/site`)).json();
+  const qrURL=site.methods.find(method => method.type==='custom')?.qr_url || '/favicon.svg';
+  site.methods=[{id:'visual-card',type:'stripe',name:'Fixture card',description:''},{id:'visual-wallet',type:'paypal',name:'Fixture wallet',description:''},{id:'visual-qr',type:'custom',name:'Fixture QR',description:'',qr_url:qrURL,checkout_url:''}];
+  site.language_currencies.en='USD';site.recent=[];
+  for(const copy of [site,...Object.values(site.translations || {})])for(const key of ['tagline','description','footer'])copy[key]='';
+  let state='pending',posts=0;
+  page.on('request',request => {if(request.method()==='POST' && new URL(request.url()).pathname==='/api/donations')posts++;});
+  await context.route(`${base}/api/site`,route => route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(site)}));
+  // Receipt presentation alone: no order is created or sent to a provider.
+  await context.route(/\/api\/donations\/visual-fixture\?/,route => route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id:'visual-fixture',status:state,amount_minor:1500,currency:'USD',method_name:'Fixture QR',custom:true,qr_url:state==='pending' ? qrURL : '',checkout_url:'',paid_at:state==='confirmed' ? '2026-10-03T00:00:00Z' : ''})}));
+  try {
+    await step('Checkout presentation: desktop and narrow pending, confirmed and failed fixtures render real sprite icons without creating payments',async () => {
+      await page.goto(base);
+      await visible(page,'input[name=method_id]');
+      await paintedIcon(page,'#random-amount svg');
+      for(const index of [0,1,2])await paintedIcon(page,`#payment-methods .method:nth-child(${index+1}) .method-icon`);
+      for(const width of [1440,390,320]) {
+        await page.setViewportSize({width,height:width===1440 ? 1050 : 844});
+        await noOverflow(page);
+        await page.screenshot({path:resolve(artifacts,`payment-method-icons-${width}.png`),fullPage:true});
+      }
+      for(const [status,title] of [['pending','Pending payment'],['confirmed','Donation confirmed'],['failed','Payment failed']]) {
+        state=status;
+        await page.goto(`${base}/?donation=visual-fixture&status_token=visual-token`);
+        await textIncludes(page,'#checkout-title',title);
+        await paintedIcon(page,'#checkout-icon');
+        if(status==='pending')await visible(page,'#checkout-qr');else await hidden(page,'#checkout-qr-container');
+        for(const width of [1440,390,320]) {
+          await page.setViewportSize({width,height:width===1440 ? 1050 : 844});
+          await noOverflow(page);
+          await page.screenshot({path:resolve(artifacts,`checkout-${status}-${width}.png`),fullPage:true});
+        }
+      }
+      assert.equal(posts,0,'Visual state fixtures must never create donations');
+    });
+  } finally {await context.close();}
+}
 
 try {
   await mkdir(artifacts, {recursive:true});
@@ -358,6 +407,9 @@ try {
   const authenticator = await addAuthenticator(admin);
 
   await step('Minimal Donate page: no default copy, animated ASCII coffee, reduced motion, policies, locales, hidden administrator entrance', async () => {
+    let donationPosts=0;
+    const countDonationPosts=request => {if(new URL(request.url()).pathname==='/api/donations' && request.method()==='POST')donationPosts++;};
+    admin.on('request',countDonationPosts);
     await admin.goto(base);
     await visible(admin, '#presets button');
     assert.equal(await admin.locator('#currency').inputValue(), 'USD');
@@ -392,7 +444,18 @@ try {
       await admin.locator('#language').selectOption(locale);
       assert.equal(await admin.locator('#currency').inputValue(),currency);
       assert.equal(await admin.locator('html').getAttribute('lang'),locale);
+      await admin.locator('#random-amount').click();
+      const randomized=Number(await admin.locator('#amount').inputValue());
+      assert.ok(Number.isInteger(randomized) && randomized>0 && randomized<=1_000_000,'Random amount must be a legal whole amount in every locale currency');
+      assert.equal(await admin.locator('#donate-button').isDisabled(),true,'Randomizing an amount must not enable donation without a payment method');
     }
+    assert.equal(donationPosts,0,'Random amount must only fill the input, never submit a donation');
+    assert.equal(await admin.getByRole('button',{name:'Random amount',exact:true}).count(),1);
+    await paintedIcon(admin,'#random-amount svg');
+    assert.equal(await admin.locator('#donation-form').getByRole('button',{name:'Donate',exact:true}).count(),1);
+    assert.deepEqual(await admin.locator('svg[data-icon]').evaluateAll(icons => icons.filter(icon => icon.getAttribute('aria-hidden')!=='true' || icon.getAttribute('focusable')!=='false').map(icon => icon.dataset.icon)),[],'Decorative icons must not add accessible names');
+    admin.off('request',countDonationPosts);
+    await admin.locator('#amount').fill('15');
     await noOverflow(admin);
     await admin.screenshot({path:resolve(artifacts,'public-pristine-desktop.png'),fullPage:true});
     for(let count = 0; count < 4; count++) await admin.locator('#logo').click();
@@ -482,13 +545,24 @@ try {
   watch(publicPage);
   let donationID, statusToken;
   await step('Custom donation: JPY integer validation, optional donor information, pending QR checkout, no premature totals', async () => {
+    let donationPosts=0;
+    const countDonationPosts=request => {if(new URL(request.url()).pathname==='/api/donations' && request.method()==='POST')donationPosts++;};
+    publicPage.on('request',countDonationPosts);
     await publicPage.goto(base);
     await visible(publicPage,'input[name=method_id]');
+    await paintedIcon(publicPage,'#payment-methods .method-icon');
     assert.equal(await publicPage.locator('#currency').inputValue(),'JPY');
     await publicPage.locator('#amount').fill('15.50');
     await publicPage.locator('#donate-button').click();
     await textIncludes(publicPage,'#amount-error','whole');
     assert.equal((await api(publicContext,'/api/stats?currency=JPY')).data.count,0);
+    await publicPage.locator('#random-amount').click();
+    const randomized=Number(await publicPage.locator('#amount').inputValue());
+    assert.ok(Number.isInteger(randomized) && randomized>0 && randomized<=1_000_000,'Random amount must fit the JPY whole-unit input');
+    await hidden(publicPage,'#amount-error');
+    assert.equal(donationPosts,0,'A random amount must not submit the configured payment method');
+    assert.equal(await publicPage.getByRole('radio',{name:'Fixture QR support Fixture transfer; confirmation by maintainer.',exact:true}).count(),1,'A payment icon must not change the radio accessible name');
+    publicPage.off('request',countDonationPosts);
     await publicPage.locator('#currency').selectOption('USD');
     await publicPage.locator('.preset[data-amount="15"]').click();
     await publicPage.locator('.donor-details summary').click();
@@ -506,6 +580,7 @@ try {
     donationID = donation.id;
     statusToken = donation.status_token;
     assert.equal(donation.status,'pending');
+    await paintedIcon(publicPage,'#checkout-icon');
     await visible(publicPage,'#checkout-qr');
     assert.ok((await publicPage.locator('#checkout-qr').getAttribute('src')).endsWith(qrURL));
     assert.equal((await api(publicContext,'/api/stats?currency=USD')).data.total_minor,0);
@@ -569,6 +644,114 @@ try {
     await admin.screenshot({path:resolve(artifacts,'admin-ledger.png'),fullPage:true});
   });
 
+  await step('Public SVG badge builder: confirmed currency totals, styling, safe copy output and fresh downloadable settings', async () => {
+    await admin.locator('[data-view=badges]').click();
+    await visible(admin,'#badge-form');
+    const options=await admin.locator('#badge-form [name=currency] option').evaluateAll(options => options.map(option => option.value));
+    assert.deepEqual(options,(await api(adminContext,'/api/admin/settings')).data.site.currencies);
+    await admin.locator('#badge-form [name=lang]').selectOption('en');
+    await admin.locator('#badge-form [name=currency]').selectOption('USD');
+    await admin.locator('#badge-form [name=period]').selectOption('all');
+    await admin.locator('#badge-form [name=layout]').selectOption('receipt');
+    await admin.locator('#badge-form [name=theme]').selectOption('dark');
+    await admin.locator('#badge-form [name=animation]').selectOption('none');
+    await admin.locator('#badge-form [name=title]').fill('Donate <fixture> & support');
+    await admin.locator('#badge-form').evaluate(form => form.requestSubmit());
+    const publicSVG=async () => {
+      await admin.waitForFunction(() => {const image=document.querySelector('#badge-preview');return !image.hidden && image.complete && image.naturalWidth>0 && image.naturalHeight>0;});
+      await hidden(admin,'#badge-status');
+      const url=new URL(await admin.locator('#badge-preview').getAttribute('src'));
+      assert.equal(url.origin,base);
+      assert.equal(url.pathname,'/badge.svg');
+      for(const key of url.searchParams.keys()) assert.ok(['lang','currency','period','layout','theme','width','title','amount_label','count_label','animation'].includes(key),'A public badge URL must not contain credentials');
+      // No admin cookie or private API token: the exported badge is public.
+      const response=await fetch(url);
+      assert.equal(response.status,200);
+      assert.ok(response.headers.get('content-type')?.startsWith('image/svg+xml'));
+      const xml=await response.text();
+      const parsed=await admin.evaluate(xml => {
+        const document=new DOMParser().parseFromString(xml,'image/svg+xml');
+        return {invalid:!!document.querySelector('parsererror'),name:document.documentElement.localName,texts:[...document.querySelectorAll('title,desc,text')].map(element => element.textContent),label:document.documentElement.getAttribute('aria-label') || ''};
+      },xml);
+      assert.equal(parsed.invalid,false,'Downloaded badge must be valid XML');
+      assert.equal(parsed.name,'svg');
+      assert.ok(!xml.includes('private-fixture@example.com') && !xml.includes('offline-private@example.com'));
+      return {url:url.href,xml,texts:parsed.texts,content:`${parsed.label}\n${parsed.texts.join('\n')}`};
+    };
+    const usd=await publicSVG();
+    assert.ok(usd.texts.includes('USD 15.00'),'USD badge must display exactly its confirmed USD 15.00');
+    assert.ok(!/1,?200/.test(usd.content),'USD badge must not combine the JPY donation');
+    assert.ok(usd.content.includes('Donate <fixture> & support'),'Custom badge title must survive safe XML escaping');
+    await admin.screenshot({path:resolve(artifacts,'admin-badge-desktop.png'),fullPage:true});
+    await admin.locator('#badge-form [name=currency]').selectOption('JPY');
+    await admin.locator('#badge-form [name=layout]').selectOption('compact');
+    await admin.locator('#badge-form [name=theme]').selectOption('transparent');
+    await admin.locator('#badge-form').evaluate(form => form.requestSubmit());
+    const jpy=await publicSVG();
+    assert.ok(jpy.texts.includes('JPY 1,200'),'JPY badge must preserve its exact whole-unit confirmed total');
+    assert.ok(!/15[.,]00/.test(jpy.content),'JPY badge must not combine the USD donation');
+    assert.equal(new URL(jpy.url).searchParams.get('layout'),'compact');
+    assert.equal(new URL(jpy.url).searchParams.get('theme'),'transparent');
+    await adminContext.grantPermissions(['clipboard-read','clipboard-write'],{origin:base});
+    for(const format of ['readme','html','url']) {
+      await admin.locator(`[data-badge-copy=${format}]`).click();
+      const code=await admin.locator('#badge-code').inputValue();
+      await admin.waitForFunction(async code => (await navigator.clipboard.readText())===code,code);
+      if(format==='readme') assert.equal(code,`[![Donate](${jpy.url})](${base}/)`);
+      if(format==='url') assert.equal(code,jpy.url);
+      if(format==='html') {
+        const target=await admin.evaluate(code => {const document=new DOMParser().parseFromString(code,'text/html');return {home:document.querySelector('a').getAttribute('href'),image:document.querySelector('img').getAttribute('src')};},code);
+        assert.deepEqual(target,{home:`${base}/`,image:jpy.url});
+      }
+    }
+    // Clicking download immediately after an edit must flush the debounce.
+    const [download]=await Promise.all([admin.waitForEvent('download'),admin.evaluate(() => {
+      for(const [name,value] of [['width','360'],['title','Fresh download']]) {
+        const input=document.querySelector(`#badge-form [name=${name}]`);input.value=value;input.dispatchEvent(new Event('input',{bubbles:true}));
+      }
+      document.querySelector('#badge-download').click();
+    })]);
+    assert.equal(download.suggestedFilename(),'donate-JPY-all.svg');
+    assert.equal(await download.failure(),null);
+    const path=resolve(artifacts,'donate-JPY-all.svg');
+    await download.saveAs(path);
+    const downloaded=await readFile(path,'utf8');
+    const current=await admin.evaluate(xml => {const document=new DOMParser().parseFromString(xml,'image/svg+xml');return {invalid:!!document.querySelector('parsererror'),width:document.documentElement.getAttribute('width'),text:document.documentElement.textContent};},downloaded);
+    assert.equal(current.invalid,false);
+    assert.equal(current.width,'360');
+    assert.ok(current.text.includes('Fresh download'),'Download must include the newest title');
+    let invalidDownloads=0;
+    const countInvalid=() => invalidDownloads++;
+    admin.on('download',countInvalid);
+    await admin.evaluate(() => {
+      const input=document.querySelector('#badge-form [name=width]');input.value='239';input.dispatchEvent(new Event('input',{bubbles:true}));
+      document.querySelector('#badge-download').click();
+    });
+    await visible(admin,'#badge-status');
+    assert.equal(await admin.locator('#badge-download').getAttribute('href'),null);
+    await admin.waitForTimeout(200);
+    assert.equal(invalidDownloads,0,'Invalid immediate download must not use the previous valid URL');
+    admin.off('download',countInvalid);
+    await admin.locator('#badge-form [name=width]').fill('360');
+    await admin.locator('#badge-form').evaluate(form => form.requestSubmit());
+    await publicSVG();
+    let invalidExports=0;
+    const countInvalidExport=request => {if(new URL(request.url()).pathname==='/badge.svg')invalidExports++;};
+    admin.on('request',countInvalidExport);
+    await admin.locator('#badge-form [name=title]').fill('Donate\u200B');
+    await admin.locator('#badge-form').evaluate(form => form.requestSubmit());
+    await visible(admin,'#badge-status');
+    assert.equal(await admin.locator('#badge-preview').isHidden(),true);
+    for(const format of ['readme','html','url'])assert.equal(await admin.locator(`[data-badge-copy=${format}]`).isDisabled(),true);
+    assert.equal(await admin.locator('#badge-download').getAttribute('href'),null);
+    await admin.waitForTimeout(200);
+    assert.equal(invalidExports,0,'Invisible format characters must not produce a badge export request');
+    admin.off('request',countInvalidExport);
+    await admin.locator('#badge-form [name=title]').fill('Fresh download');
+    await admin.locator('#badge-form').evaluate(form => form.requestSubmit());
+    await publicSVG();
+  });
+
   await step('Donate desktop and narrow layouts have no horizontal overflow', async () => {
     await publicPage.goto(base);
     await visible(publicPage,'#presets button');
@@ -582,16 +765,18 @@ try {
     await visible(publicPage,'pre.coffee-logo');
     await publicPage.screenshot({path:resolve(artifacts,'public-320.png'),fullPage:true});
     await admin.setViewportSize({width:390,height:844});
-    for(const view of ['ledger','site','payments','catalog','notifications','api']) {
+    for(const view of ['ledger','site','payments','catalog','notifications','api','badges']) {
       await admin.locator(`[data-view=${view}]`).click();
       await noOverflow(admin);
+      if(view==='badges')await admin.screenshot({path:resolve(artifacts,'admin-badge-mobile.png'),fullPage:true});
     }
     await admin.locator('[data-view=ledger]').click();
     await admin.screenshot({path:resolve(artifacts,'admin-mobile.png'),fullPage:true});
     await admin.setViewportSize({width:320,height:740});
-    for(const view of ['ledger','site','payments','catalog','notifications','api']) {
+    for(const view of ['ledger','site','payments','catalog','notifications','api','badges']) {
       await admin.locator(`[data-view=${view}]`).click();
       await noOverflow(admin);
+      if(view==='badges')await admin.screenshot({path:resolve(artifacts,'admin-badge-320.png'),fullPage:true});
     }
     await admin.locator('[data-view=ledger]').click();
     await visible(admin,'pre.coffee-logo');
@@ -825,6 +1010,7 @@ try {
 
   }
   await donorLifecycleScenarios();
+  if(!focus)await checkoutVisualScenarios();
 
   assert.deepEqual(scriptErrors,[],'Uncaught browser JavaScript errors');
   assert.deepEqual(consoleErrors,[],'Unexpected console errors');

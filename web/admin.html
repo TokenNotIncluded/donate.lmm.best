@@ -7,6 +7,9 @@
   <meta name="robots" content="noindex, nofollow">
   <title>Donate</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <link id="icon-sprite" rel="preload" href="/icons.svg" as="image" type="image/svg+xml">
   <link rel="stylesheet" href="/admin.css">
   <link rel="stylesheet" href="/coffee.css">
   <script defer src="/coffee.js"></script>
@@ -58,7 +61,8 @@
           <button type="button" data-view="payments"><span data-i18n="paymentMethods">支付方式</span></button>
           <button type="button" data-view="catalog"><span data-i18n="waffoProducts">Waffo 产品</span></button>
           <button type="button" data-view="notifications"><span data-i18n="notifications">通知</span></button>
-          <button type="button" data-view="api"><span data-i18n="statsSecurity">统计与安全</span></button></div>
+          <button type="button" data-view="api"><span data-i18n="statsSecurity">统计与安全</span></button>
+          <button type="button" data-view="badges"><span data-i18n="publicBadge">公开徽章</span></button></div>
         </nav>
         </div>
       </aside>
@@ -74,6 +78,25 @@
         <section id="view-payments" class="view" hidden aria-labelledby="payments-title"><div class="section-head"><div><h1 id="payments-title" data-i18n="paymentMethods">支付方式</h1></div></div><form id="methods-form"></form><div class="add-method"><label for="new-method-type" data-i18n="addMethod">添加支付方式</label><select id="new-method-type"><option value="waffo">Waffo Pancake</option><option value="stripe">Stripe</option><option value="paypal">PayPal</option><option value="custom" data-i18n="customMethod">自定义二维码 / 链接</option></select><button type="button" id="add-method" class="quiet" data-i18n="add">添加</button></div></section>
         <section id="view-catalog" class="view" hidden aria-labelledby="catalog-title"><div class="section-head"><div><h1 id="catalog-title" data-i18n="waffoProducts">Waffo 产品</h1></div></div><div class="catalog-controls form-grid"><div class="field"><label for="catalog-method" data-i18n="waffoAccount">Waffo 支付方式</label><select id="catalog-method"></select></div><div class="field"><label for="catalog-store" data-i18n="store">店铺</label><select id="catalog-store" disabled><option value="" data-i18n="selectStore">选择店铺</option></select></div><div class="actions span-all"><button type="button" id="load-stores" class="quiet" data-i18n="loadStores">连接并读取店铺</button><button type="button" id="load-products" class="quiet" disabled data-i18n="refreshProducts">刷新产品</button><button type="button" id="use-store" class="quiet" disabled data-i18n="useStore">设为支付店铺</button></div></div><p id="catalog-status" class="muted" role="status"></p><form id="product-form"></form><div id="products-list" class="products-list"></div></section>
         <section id="view-notifications" class="view" hidden aria-labelledby="notifications-title"><div class="section-head"><div><h1 id="notifications-title" data-i18n="notifications">通知</h1></div></div><form id="notifications-form"></form><div class="section-head compact"><h2 data-i18n="deliveryHistory">发送记录</h2><button type="button" id="notifications-refresh" class="quiet" data-i18n="refresh">刷新</button></div><div id="notifications-list" class="notifications-list"></div></section>
+        <section id="view-badges" class="view" hidden aria-labelledby="badges-title">
+          <div class="section-head"><h1 id="badges-title" data-i18n="publicBadge">公开徽章</h1></div>
+          <div class="badge-builder">
+            <form id="badge-form" class="form-grid"></form>
+            <div class="badge-output">
+              <h2 data-i18n="badgePreview">预览</h2>
+              <p class="badge-scope muted" data-i18n="badgeConfirmed">已确认捐款</p>
+              <div id="badge-preview-frame" class="badge-preview-frame"><img id="badge-preview" alt="Donate" decoding="async" hidden></div>
+              <p id="badge-status" class="inline-error" role="status" hidden></p>
+              <div id="badge-share" class="actions">
+                <button type="button" class="quiet" data-badge-copy="readme">README</button>
+                <button type="button" class="quiet" data-badge-copy="html">HTML</button>
+                <button type="button" class="quiet" data-badge-copy="url">SVG URL</button>
+                <a id="badge-download" class="button quiet" download="donate-badge.svg"><span data-i18n="badgeDownload">下载</span></a>
+              </div>
+              <div class="field badge-code-field"><label id="badge-code-label" for="badge-code">README</label><textarea id="badge-code" readonly rows="3" spellcheck="false"></textarea></div>
+            </div>
+          </div>
+        </section>
         <section id="view-api" class="view" hidden aria-labelledby="api-title"><div class="section-head"><div><h1 id="api-title" data-i18n="statsSecurity">统计与安全</h1></div></div><div class="toolbar"><label for="stats-currency" data-i18n="currency">币种</label><select id="stats-currency"></select><button type="button" id="stats-refresh" class="quiet" data-i18n="refreshStats">读取统计</button></div><pre id="stats-result" class="api-result" aria-live="polite"></pre><div class="config-section"><h2 data-i18n="statsAPI">统计 API</h2><h3 data-i18n="publicStats">公开接口</h3><code>GET /api/stats?currency=USD</code><h3 data-i18n="privateStats">私有接口</h3><code>GET /api/private/stats</code><div class="field"><label for="stats-token" data-i18n="statsToken">统计 Token</label><input id="stats-token" type="password" readonly autocomplete="off"><div class="actions"><button type="button" id="reveal-token" class="quiet" data-i18n="showHide">显示 / 隐藏</button><button type="button" id="copy-token" class="quiet" data-i18n="copyToken">复制 Token</button><button type="button" id="rotate-token" class="quiet" data-i18n="rotateToken">更新 Token</button></div></div></div><div class="config-section"><h2 data-i18n="loginSecurity">登录安全</h2><p id="passkey-count"></p><button type="button" id="add-passkey" class="quiet" data-i18n="addPasskey">添加备用 Passkey</button></div></section>
       </div>
     </div>

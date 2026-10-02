@@ -223,6 +223,7 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("GET /terms", a.legal)
 	mux.HandleFunc("GET /privacy", a.legal)
 	mux.HandleFunc("GET /api/stats", a.publicStats)
+	mux.HandleFunc("GET /badge.svg", a.publicBadge)
 	mux.HandleFunc("GET /api/private/stats", a.privateStats)
 	mux.HandleFunc("POST /api/donations", a.createDonation)
 	mux.HandleFunc("GET /api/donations/{id}", a.donationStatus)
@@ -310,7 +311,7 @@ func (a *App) serveAssets(w http.ResponseWriter, r *http.Request) {
 // combined with the current HTML. Query strings do not alter the served path.
 func (a *App) versionStaticHTML(content []byte) ([]byte, error) {
 	var replacements []string
-	for _, name := range []string{"favicon.svg", "style.css", "app.js", "admin.css", "admin.js", "coffee.css", "coffee.js"} {
+	for _, name := range []string{"favicon.svg", "favicon.ico", "apple-touch-icon.png", "site.webmanifest", "icons.svg", "style.css", "app.js", "admin.css", "admin.js", "coffee.css", "coffee.js"} {
 		var references []string
 		for _, attribute := range []string{"href", "src"} {
 			for _, quote := range []string{`"`, `'`} {

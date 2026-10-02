@@ -7,6 +7,9 @@
   <meta name="description" content="">
   <title>Donate</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <link id="icon-sprite" rel="preload" href="/icons.svg" as="image" type="image/svg+xml">
   <link rel="stylesheet" href="/coffee.css">
   <link rel="stylesheet" href="/style.css">
   <script defer src="/coffee.js"></script>
@@ -25,48 +28,48 @@
  --------&#32;&#32;</pre></button>
         <h1 id="site-name">Donate</h1>
       </div>
-      <label class="language-control"><span class="sr-only" data-i18n="language">语言</span><select id="language" aria-label="语言"><option value="zh-CN">简体中文</option><option value="zh-TW">繁體中文</option><option value="en">English</option></select><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></label>
+      <label class="language-control"><span class="sr-only" data-i18n="language">语言</span><select id="language" aria-label="语言"><option value="zh-CN">简体中文</option><option value="zh-TW">繁體中文</option><option value="en">English</option></select><svg class="icon" data-icon="chevron-down" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use></use></svg></label>
     </header>
     <main>
       <div class="custom-copy" id="custom-copy" hidden><p id="site-tagline" hidden></p><p id="site-description" hidden></p></div>
       <section class="donation-sheet" aria-label="Donate">
         <form id="donation-form">
-          <div class="amount-label"><label for="amount" data-i18n="amount">金额</label><label class="currency-control"><span class="sr-only" data-i18n="currency">币种</span><select id="currency" name="currency"></select><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></label></div>
+          <div class="amount-label"><label for="amount" data-i18n="amount">金额</label><div class="amount-tools"><button id="random-amount" class="icon-button" type="button" aria-label="随机金额" title="随机金额"><svg class="icon" data-icon="dice" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use></use></svg></button><label class="currency-control"><span class="sr-only" data-i18n="currency">币种</span><select id="currency" name="currency"></select><svg class="icon" data-icon="chevron-down" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use></use></svg></label></div></div>
           <div class="amount-entry"><span id="currency-symbol" aria-hidden="true">¥</span><input id="amount" name="amount" type="text" inputmode="decimal" autocomplete="off" value="15" maxlength="12" aria-describedby="amount-error" required></div>
           <p id="amount-error" class="field-error" role="alert" hidden></p>
           <div id="presets" class="presets" aria-label="预设金额"></div>
           <fieldset class="payment-choice"><legend data-i18n="paymentMethod">支付方式</legend><div id="payment-methods" class="payment-methods"><p class="empty-note" data-i18n="loading">正在加载…</p></div></fieldset>
-          <details class="donor-details"><summary><span data-i18n="leaveNote">信息（选填）</span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h12M10 4v12"/></svg></summary><div class="donor-fields" id="donor-fields">
+          <details class="donor-details"><summary><span data-i18n="leaveNote">信息（选填）</span><svg class="icon" data-icon="plus" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use></use></svg></summary><div class="donor-fields" id="donor-fields">
             <label id="name-field"><span data-i18n="nameOptional">称呼</span><input name="name" id="donor-name" maxlength="120" autocomplete="name"></label>
             <label id="email-field"><span data-i18n="emailOptional">邮箱</span><input name="email" id="donor-email" type="email" maxlength="254" autocomplete="email"></label>
             <label id="message-field"><span data-i18n="messageOptional">留言</span><textarea name="message" id="donor-message" rows="2" maxlength="1000"></textarea></label>
             <label class="consent" id="public-consent-label"><input name="public" id="donor-public" type="checkbox"><span data-i18n="publicConsent">公开称呼和留言</span></label>
           </div></details>
           <p id="form-error" class="form-error" role="alert" hidden></p>
-          <button class="donate-button" type="submit" id="donate-button"><span data-i18n="donate">捐赠</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5"/></svg></button>
+          <button class="donate-button" type="submit" id="donate-button"><span data-i18n="donate">捐赠</span><svg class="icon" data-icon="arrow-right" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use></use></svg></button>
         </form>
         <section class="checkout-status" id="checkout-status" tabindex="-1" hidden aria-labelledby="checkout-title">
-          <h2 id="checkout-title"></h2><p id="checkout-copy"></p><div class="checkout-amount" id="checkout-amount"></div>
+          <div class="checkout-heading"><svg id="checkout-icon" class="icon" data-icon="clock" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use></use></svg><h2 id="checkout-title"></h2></div><p id="checkout-copy"></p><div class="checkout-amount" id="checkout-amount"></div>
           <div id="checkout-qr-container" hidden></div>
           <p id="checkout-instructions" class="instructions" hidden></p>
-          <a id="checkout-link" class="donate-button" target="_blank" rel="noopener noreferrer" hidden><span data-i18n="openCheckout">前往支付</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 18 18 6M7 6h11v11"/></svg></a>
+          <a id="checkout-link" class="donate-button" target="_blank" rel="noopener noreferrer" hidden><span data-i18n="openCheckout">前往支付</span><svg class="icon" data-icon="external" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use></use></svg></a>
           <p class="status-detail" id="status-detail" role="status"></p>
-          <div class="checkout-actions"><button id="status-refresh" class="text-link" type="button" data-i18n="checkPayment">查看状态</button><button id="new-donation" class="text-link" type="button" data-i18n="backDonate">返回</button></div>
+          <div class="checkout-actions"><button id="status-refresh" class="text-link" type="button"><svg class="icon" data-icon="refresh" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use></use></svg><span id="status-refresh-label" data-i18n="checkPayment">查看状态</span></button><button id="new-donation" class="text-link" type="button"><svg class="icon icon-back" data-icon="arrow-right" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use></use></svg><span data-i18n="backDonate">返回</span></button></div>
         </section>
       </section>
       <section class="support-section" id="support-section" aria-label="捐赠" hidden><div id="recent-support" class="recent-support"></div></section>
     </main>
-    <footer class="site-footer"><p id="site-footer-text" hidden></p><nav aria-label="Legal"><button class="text-link" type="button" data-policy="terms" data-i18n="terms">用户协议</button><button class="text-link" type="button" data-policy="privacy" data-i18n="privacy">隐私政策</button><a id="contact-link" class="text-link" hidden data-i18n="contact">联系</a><button id="donor-account-entry" class="text-link" type="button" aria-haspopup="dialog" aria-controls="donor-dialog">登录</button></nav></footer>
+    <footer class="site-footer"><p id="site-footer-text" hidden></p><nav aria-label="Legal"><button class="text-link" type="button" data-policy="terms" data-i18n="terms">用户协议</button><button class="text-link" type="button" data-policy="privacy" data-i18n="privacy">隐私政策</button><a id="contact-link" class="text-link" hidden data-i18n="contact">联系</a><button id="donor-account-entry" class="text-link" type="button" aria-haspopup="dialog" aria-controls="donor-dialog"><svg class="icon" data-icon="user" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use></use></svg><span id="donor-account-label">登录</span></button></nav></footer>
   </div>
-  <dialog class="policy-dialog" id="policy-dialog"><div class="policy-header"><h2 id="policy-title"></h2><button type="button" id="close-policy" aria-label="关闭"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div id="policy-content"></div></dialog>
+  <dialog class="policy-dialog" id="policy-dialog"><div class="policy-header"><h2 id="policy-title"></h2><button type="button" id="close-policy" aria-label="关闭"><svg class="icon" data-icon="close" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use></use></svg></button></div><div id="policy-content"></div></dialog>
   <dialog class="policy-dialog donor-dialog" id="donor-dialog" aria-labelledby="donor-title">
-    <div class="policy-header"><h2 id="donor-title">登录</h2><button type="button" id="close-donor" aria-label="关闭" autofocus><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+    <div class="policy-header"><h2 id="donor-title">登录</h2><button type="button" id="close-donor" aria-label="关闭" autofocus><svg class="icon" data-icon="close" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use></use></svg></button></div>
     <p id="donor-loading" class="account-feedback" role="status" hidden></p>
     <p id="donor-error" class="account-feedback account-error" role="alert" hidden></p>
     <p id="donor-status" class="account-feedback" role="status" hidden></p>
-    <div id="donor-auth-actions" class="donor-auth-actions"><button id="donor-register" class="donor-button primary" type="button" data-i18n="createPasskey">创建 Passkey</button><button id="donor-login" class="donor-button" type="button" data-i18n="signIn">登录</button></div>
+    <div id="donor-auth-actions" class="donor-auth-actions"><button id="donor-register" class="donor-button primary" type="button"><svg class="icon" data-icon="passkey" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use></use></svg><span data-i18n="createPasskey">创建 Passkey</span></button><button id="donor-login" class="donor-button" type="button"><svg class="icon" data-icon="passkey" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use></use></svg><span data-i18n="signIn">登录</span></button></div>
     <section id="donor-account" hidden>
-      <div class="account-actions"><button id="donor-add-passkey" class="text-link" type="button" data-i18n="addPasskey">添加 Passkey</button><button id="donor-logout" class="text-link" type="button" data-i18n="signOut">退出</button></div>
+      <div class="account-actions"><button id="donor-add-passkey" class="text-link" type="button"><svg class="icon" data-icon="passkey" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use></use></svg><span data-i18n="addPasskey">添加 Passkey</span></button><button id="donor-logout" class="text-link" type="button"><svg class="icon" data-icon="logout" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use></use></svg><span data-i18n="signOut">退出</span></button></div>
       <h3 class="account-history-title" data-i18n="donationHistory">捐赠记录</h3>
       <div id="donor-history-list" class="account-history"></div>
       <p id="donor-history-empty" class="account-feedback" data-i18n="noHistory" hidden>暂无捐赠</p>

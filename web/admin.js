@@ -12,6 +12,40 @@ const savedLocale = storageRead('localStorage','token-admin-language');
 words.createAnother = ['创建另一个产品','Create another product','建立另一個商品'];
 words.storeChanged = ['店铺已选择','Store selected','店鋪已選擇'];
 words.account = ['账号','Account','帳號'];
+Object.assign(words, {
+  publicBadge: ['公开徽章','Public badge','公開徽章'],
+  badgePreview: ['预览','Preview','預覽'],
+  badgeConfirmed: ['已确认捐款','Confirmed donations','已確認捐款'],
+  badgeLanguage: ['语言','Language','語言'],
+  badgePeriod: ['时间范围','Period','時間範圍'],
+  badgeAll: ['全部','All time','全部'],
+  badge7d: ['7 天','7 days','7 天'],
+  badge30d: ['30 天','30 days','30 天'],
+  badgeYear: ['今年','This year','今年'],
+  badgeLayout: ['布局','Layout','版面'],
+  badgeReceipt: ['收据','Receipt','收據'],
+  badgeCompact: ['紧凑','Compact','精簡'],
+  badgeTheme: ['外观','Appearance','外觀'],
+  badgeDark: ['黑色','Dark','黑色'],
+  badgeLight: ['白色','Light','白色'],
+  badgeTransparent: ['透明','Transparent','透明'],
+  badgeWidth: ['宽度','Width','寬度'],
+  badgeTitle: ['标题','Title','標題'],
+  badgeAmountLabel: ['金额标签','Amount label','金額標籤'],
+  badgeCountLabel: ['笔数标签','Count label','筆數標籤'],
+  badgeDefault: ['默认','Default','預設'],
+  badgeAnimation: ['动画','Animation','動畫'],
+  badgeNone: ['无','None','無'],
+  badgeSteam: ['蒸汽','Steam','蒸汽'],
+  badgeDownload: ['下载','Download','下載'],
+  badgeCopied: ['已复制','Copied','已複製'],
+  badgeCopy: ['复制','Copy','複製'],
+  badgeCopyError: ['复制失败，可手动复制下面的代码。','Copy failed. Copy the code below manually.','複製失敗，可手動複製下方程式碼。'],
+  badgePreviewError: ['徽章加载失败','Badge could not load','徽章載入失敗'],
+  badgeTextInvalid: ['移除文字中的不可见字符','Remove invisible characters from text','移除文字中的不可見字元'],
+  badgeInvalid: ['宽度须为 240–1200，标题最多 40 字，标签最多 24 字。','Width must be 240–1200, title up to 40 characters, labels up to 24.','寬度須為 240–1200，標題最多 40 字，標籤最多 24 字。']
+});
+
 let locale = languages.includes(savedLocale) ? savedLocale : (navigator.language.startsWith('zh-TW') || navigator.language.startsWith('zh-HK') ? 'zh-TW' : navigator.language.startsWith('zh') ? 'zh-CN' : 'en');
 const t = key => words[key]?.[locale === 'en' ? 1 : locale === 'zh-TW' ? 2 : 0] ?? words[key]?.[0] ?? key;
 const langNames = {'zh-CN':'简体中文','zh-TW':'繁體中文','en':'English'};
@@ -33,6 +67,11 @@ let catalogIdentityFingerprint = '';
 let catalogMutating = false;
 let uploadsInFlight = 0;
 let noticeTimer;
+let badgeState = null;
+let badgePreviewTimer;
+let badgeFormat = 'readme';
+let badgeURL = '';
+const iconSpriteURL = $('#icon-sprite').href;
 
 function translateStatic() {
   document.documentElement.lang = locale;
@@ -48,7 +87,7 @@ function updateBrand() {
   document.title = name;
 }
 function updateHeaderContext() {
-  const label = t({ledger:'ledger',site:'siteSettings',payments:'paymentMethods',catalog:'waffoProducts',notifications:'notifications',api:'statsSecurity'}[currentView] || 'ledger');
+  const label = t({ledger:'ledger',site:'siteSettings',payments:'paymentMethods',catalog:'waffoProducts',notifications:'notifications',api:'statsSecurity',badges:'publicBadge'}[currentView] || 'ledger');
   return label;
 }
 function notify(message, error = false) {
@@ -187,7 +226,7 @@ async function loadAdmin() {
   translateStatic();
   await loadLedger();
 }
-function renderSettings() { renderSite(); renderMethods(); renderNotificationsForm();if(catalogMutating) $$('#methods-form button, #site-form button, #notifications-form button').forEach(button => {button.disabled = true;}); }
+function renderSettings() { renderSite(); renderMethods(); renderNotificationsForm();renderBadgeBuilder();if(catalogMutating) $$('#methods-form button, #site-form button, #notifications-form button').forEach(button => {button.disabled = true;}); }
 function renderSite() {
   const site = settings.site;
   const activeLanguages = site.languages || languages;
@@ -347,6 +386,80 @@ function renderProductForm() {
 function renderProducts() {
   $('#products-list').innerHTML = catalogProducts.length ? catalogProducts.map(product => `<article class="product-row"><div><h3>${escapeHTML(product.name)}</h3><p>${escapeHTML(statusText(product.status))}${product.has_prod_version ? ` · ${escapeHTML(t('production'))}` : ''}${Object.entries(product.prices || {}).map(([currency,price]) => ` / ${escapeHTML(money(price.amount_minor,currency))}`).join('')}</p>${product.description ? `<p>${escapeHTML(product.description)}</p>` : ''}<code>${escapeHTML(product.id)}</code></div><div class="actions"><button type="button" class="quiet" data-edit-product="${escapeHTML(product.id)}">${escapeHTML(t('edit'))}</button><button type="button" class="quiet" data-use-product="${escapeHTML(product.id)}">${escapeHTML(t('useProduct'))}</button>${product.status !== 'inactive' ? `<button type="button" class="danger" data-deactivate-product="${escapeHTML(product.id)}">${escapeHTML(t('deactivate'))}</button>` : ''}</div></article>`).join('') : `<p class="empty-state">${escapeHTML(t('noProducts'))}</p>`;
 }
+function badgeIcon(name) {
+  return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="${escapeHTML(iconSpriteURL)}#${name}"></use></svg>`;
+}
+function renderBadgeBuilder() {
+  const enabled = settings.site.currencies?.length ? settings.site.currencies : [settings.site.currency || 'USD'];
+  badgeState ||= {lang:languages.includes(settings.site.default_language) ? settings.site.default_language : 'en',currency:settings.site.currency || enabled[0],period:'all',layout:'receipt',theme:'dark',width:'480',title:'Donate',amount_label:'',count_label:'',animation:'none'};
+  if(!enabled.includes(badgeState.currency)) badgeState.currency = enabled.includes(settings.site.currency) ? settings.site.currency : enabled[0];
+  const state = badgeState;
+  $('#badge-form').innerHTML = `${selectField(t('badgeLanguage'),'lang',languages.map(value => option(value,langNames[value],state.lang === value)).join(''))}${selectField(t('currency'),'currency',currencyOptions(state.currency,enabled))}${selectField(t('badgePeriod'),'period',['all','7d','30d','year'].map(value => option(value,t({all:'badgeAll','7d':'badge7d','30d':'badge30d',year:'badgeYear'}[value]),state.period === value)).join(''))}${selectField(t('badgeLayout'),'layout',['receipt','compact'].map(value => option(value,t(value === 'receipt' ? 'badgeReceipt' : 'badgeCompact'),state.layout === value)).join(''))}${selectField(t('badgeTheme'),'theme',['dark','light','transparent'].map(value => option(value,t({dark:'badgeDark',light:'badgeLight',transparent:'badgeTransparent'}[value]),state.theme === value)).join(''))}${selectField(t('badgeAnimation'),'animation',option('none',t('badgeNone'),state.animation === 'none') + option('steam',t('badgeSteam'),state.animation === 'steam'))}${field(t('badgeWidth'),'width',state.width,{type:'number',required:true})}${field(t('badgeTitle'),'title',state.title,{maxlength:40})}${field(t('badgeAmountLabel'),'amount_label',state.amount_label,{maxlength:24,placeholder:t('badgeDefault')})}${field(t('badgeCountLabel'),'count_label',state.count_label,{maxlength:24,placeholder:t('badgeDefault')})}`;
+  const width = $('[name="width"]', $('#badge-form'));
+  width.min = '240';width.max = '1200';width.step = '1';
+  $$('[data-badge-copy]').forEach(button => {
+    const label = {readme:'README',html:'HTML',url:'SVG URL'}[button.dataset.badgeCopy];
+    button.innerHTML = `${badgeIcon('copy')}<span>${label}</span>`;
+    button.setAttribute('aria-label', `${t('badgeCopy')} ${label}`);
+  });
+  $('#badge-download').innerHTML = `${badgeIcon('download')}<span>${escapeHTML(t('badgeDownload'))}</span>`;
+  updateBadgePreview();
+}
+function readBadgeState() {
+  return Object.fromEntries([...new FormData($('#badge-form'))].map(([key,value]) => [key,String(value).trim()]));
+}
+function badgeCode(format = badgeFormat) {
+  const home = `${location.origin}/`;
+  if(format === 'url') return badgeURL;
+  if(format === 'html') return `<a href="${escapeHTML(home)}"><img src="${escapeHTML(badgeURL)}" alt="Donate"></a>`;
+  return `[![Donate](${badgeURL})](${home})`;
+}
+function updateBadgeCode() {
+  $('#badge-code-label').textContent = {readme:'README',html:'HTML',url:'SVG URL'}[badgeFormat];
+  $('#badge-code').value = badgeURL ? badgeCode() : '';
+}
+function updateBadgePreview() {
+  clearTimeout(badgePreviewTimer);
+  if(!badgeState) return;
+  const state = readBadgeState();
+  badgeState = state;
+  const width = Number(state.width);
+  const invalidText = [state.title,state.amount_label,state.count_label].some(value => /[\p{Cc}\p{Cf}]/u.test(value));
+  const valid = $('#badge-form').checkValidity() && Number.isInteger(width) && width >= 240 && width <= 1200 && !invalidText;
+  const status = $('#badge-status'), image = $('#badge-preview'), download = $('#badge-download');
+  $$('[data-badge-copy]').forEach(button => {button.disabled = !valid;});
+  if(!valid) {
+    badgeURL = '';image.hidden = true;status.textContent = t(invalidText ? 'badgeTextInvalid' : 'badgeInvalid');status.hidden = false;
+    download.removeAttribute('href');download.setAttribute('aria-disabled','true');download.tabIndex = -1;
+    updateBadgeCode();return;
+  }
+  const url = new URL('/badge.svg', location.origin);
+  for(const key of ['lang','currency','period','layout','theme','width','title','amount_label','count_label','animation']) if(state[key]) url.searchParams.set(key,state[key]);
+  badgeURL = url.href;
+  status.hidden = true;
+  $('#badge-preview-frame').dataset.theme = state.theme;
+  image.width = width;
+  image.hidden = false;
+  if(image.src !== badgeURL) image.src = badgeURL;
+  download.href = badgeURL;download.download = `donate-${state.currency}-${state.period}.svg`;
+  download.removeAttribute('aria-disabled');download.removeAttribute('tabindex');
+  updateBadgeCode();
+}
+$('#badge-form').addEventListener('input',() => {
+  badgeState = readBadgeState();clearTimeout(badgePreviewTimer);badgePreviewTimer = setTimeout(updateBadgePreview,180);
+});
+$('#badge-form').addEventListener('submit',event => {event.preventDefault();updateBadgePreview();});
+$('#badge-preview').addEventListener('error',() => {if(!badgeURL) return;$('#badge-preview').hidden = true;$('#badge-status').textContent = t('badgePreviewError');$('#badge-status').hidden = false;});
+$('#badge-preview').addEventListener('load',() => {if(badgeURL) $('#badge-status').hidden = true;});
+$('#badge-download').addEventListener('click',event => {updateBadgePreview();if(!badgeURL) event.preventDefault();});
+$('#badge-share').addEventListener('click',event => {
+  const button = event.target.closest('[data-badge-copy]');
+  if(!button || button.disabled) return;
+  updateBadgePreview();
+  if(!badgeURL) return;
+  badgeFormat = button.dataset.badgeCopy;updateBadgeCode();
+  busy(button,async () => {try {await navigator.clipboard.writeText(badgeCode());} catch {$('#badge-code').focus();$('#badge-code').select();throw new Error(t('badgeCopyError'));}notify(t('badgeCopied'));});
+});
 let operationCache;
 try {operationCache = JSON.parse(storageRead('sessionStorage','token-admin-operations') || '{}');} catch {operationCache = {};}
 function operationKey(method, path, body) {
@@ -381,6 +494,7 @@ async function showView(view) {
   $$('.view').forEach(section => { section.hidden = section.id !== `view-${view}`; });
   if(view === 'notifications') await loadNotifications();
   if(view === 'api') await loadStats();
+  if(view === 'badges') updateBadgePreview();
 }
 
 $('#password-form').addEventListener('submit',event => {

@@ -1,5 +1,23 @@
 const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => [...scope.querySelectorAll(selector)];
+const svgNamespace = 'http://www.w3.org/2000/svg';
+const iconSpriteURL = $('#icon-sprite').href;
+function setIcon(element, name) {
+  let use = $('use', element);
+  if (!use) { use = document.createElementNS(svgNamespace, 'use'); element.append(use); }
+  use.setAttribute('href', `${iconSpriteURL}#${name}`);
+  element.dataset.icon = name;
+}
+function createIcon(name, className = 'icon') {
+  const element = document.createElementNS(svgNamespace, 'svg');
+  element.setAttribute('class', className);
+  element.setAttribute('viewBox', '0 0 24 24');
+  element.setAttribute('aria-hidden', 'true');
+  element.setAttribute('focusable', 'false');
+  setIcon(element, name);
+  return element;
+}
+$$('svg[data-icon]').forEach(element => setIcon(element, element.dataset.icon));
 const supportedLocales = ['zh-CN', 'zh-TW', 'en'];
 const ui = {
   'zh-CN': {
@@ -26,6 +44,9 @@ defaultPolicies.en.privacy+='\n\nOptional accounts store an account identifier, 
 ui['zh-CN'].sessionChanged='账号已改变，请重试。';
 ui['zh-TW'].sessionChanged='帳號已變更，請重試。';
 ui.en.sessionChanged='Your account changed. Please retry.';
+ui['zh-CN'].randomAmount='随机金额';
+ui['zh-TW'].randomAmount='隨機金額';
+ui.en.randomAmount='Random amount';
 const waffoRangesMinor={USD:[100,1000000],EUR:[100,940000],GBP:[100,815000],HKD:[800,7760000],JPY:[100,1600000],CNY:[100,100000]};
 let site = null;
 let locale = 'zh-CN';
@@ -78,6 +99,8 @@ function applyLanguage() {
   $('#language').value = locale;
   $('#language').setAttribute('aria-label',t('language'));
   $('#presets').setAttribute('aria-label',t('amount'));
+  $('#random-amount').setAttribute('aria-label',t('randomAmount'));
+  $('#random-amount').title=t('randomAmount');
   $('#close-policy').setAttribute('aria-label',t('close'));
   if($('#checkout-qr')) $('#checkout-qr').alt = t('qrAlt');
   $('#site-name').textContent = site?.name || 'Donate';
@@ -117,22 +140,45 @@ function renderPresets() {
   markPreset();
 }
 function markPreset() { $$('.preset').forEach(button=>{const selected=Number(button.dataset.amount)===Number($('#amount').value);button.classList.toggle('active',selected);button.setAttribute('aria-pressed',String(selected));}); }
+function randomAmountRange() {
+  const presets=(site?.presets?.length ? site.presets : [5,15,50,100]).map(Number).filter(value=>Number.isFinite(value) && value>0);
+  const selected=$('input[name=method_id]:checked:not(:disabled)');
+  const method=site?.methods?.find(item=>item.id===selected?.value);
+  const factor=10 ** exponent(currency);
+  const range=method?.type==='waffo' ? waffoRangesMinor[currency] : null;
+  const minimum=Math.max(1,range ? Math.ceil(range[0]/factor) : 1);
+  const maximum=Math.min(1000000,range ? Math.floor(range[1]/factor) : 1000000);
+  const low=Math.max(minimum,Math.ceil(Math.min(...(presets.length ? presets : [minimum]))));
+  const high=Math.min(maximum,Math.floor(Math.max(...(presets.length ? presets : [minimum]))));
+  return low<=high ? [low,high] : null;
+}
+function renderRandomAmount() { $('#random-amount').disabled=!randomAmountRange(); }
+function randomizeAmount() {
+  const range=randomAmountRange();
+  if(!range)return;
+  const [low,high]=range;
+  $('#amount').value=String(low+Math.floor(Math.random()*(high-low+1)));
+  $('#amount').dispatchEvent(new Event('input',{bubbles:true}));
+}
 function renderMethods() {
   const old=$('input[name=method_id]:checked')?.value;
   const container=$('#payment-methods');container.replaceChildren();
   const methods=site?.methods || [];
-  if(!methods.length) {const note=document.createElement('p');note.className='empty-note';note.textContent=t('noMethods');container.append(note);$('#donate-button').disabled=true;return;}
+  if(!methods.length) {const note=document.createElement('p');note.className='empty-note';note.textContent=t('noMethods');container.append(note);$('#donate-button').disabled=true;renderRandomAmount();return;}
   methods.forEach((method,index) => {
     const label=document.createElement('label');label.className='method';
     const radio=document.createElement('input');radio.type='radio';radio.name='method_id';radio.value=method.id;radio.required=true;
+    radio.addEventListener('change',renderRandomAmount);
     radio.checked=old ? method.id===old : index===0;
     const unavailable=method.type==='waffo' && currency==='TWD';radio.disabled=unavailable;
     const body=document.createElement('span');body.className='method-body';const name=document.createElement('span');name.className='method-title';name.textContent=method.name;body.append(name);
     if(method.description || unavailable) {const description=document.createElement('span');description.className='method-description';description.textContent=unavailable ? t('unsupportedWaffo') : method.description;body.append(description);}
     if(unavailable) {label.style.opacity='.55';radio.checked=false;}
-    label.append(radio,body);container.append(label);
+    const iconName=method.type==='custom' ? method.qr_url ? 'qr' : method.checkout_url ? 'link' : 'wallet' : method.type==='stripe' ? 'card' : 'wallet';
+    label.append(radio,createIcon(iconName,'icon method-icon'),body);container.append(label);
   });
   if(!$('input[name=method_id]:checked')) {const first=$('input[name=method_id]:not(:disabled)');if(first)first.checked=true;}
+  renderRandomAmount();
   $('#donate-button').disabled=submissionBusy || donorBusy || !$('input[name=method_id]:not(:disabled)');
 }
 function parseAmount() {
@@ -173,6 +219,8 @@ function renderCheckout() {
   const state=activeCheckout.status;
   const finalState=['paid','confirmed','completed','succeeded','refunded','failed','cancelled','canceled'].includes(state);
   const key=['paid','confirmed','completed','succeeded'].includes(state)?'paid':state==='refunded'?'refunded':state==='failed'?'failed':['cancelled','canceled'].includes(state)?'cancelled':'pending';
+  setIcon($('#checkout-icon'),{pending:'clock',paid:'check',refunded:'refund',failed:'alert',cancelled:'close'}[key]);
+  $('#checkout-status').dataset.state=key;
   $('#checkout-title').textContent=t(`${key}Title`);
   const copy=t(key==='pending' && activeCheckout.custom ? 'customPendingCopy' : `${key}Copy`);
   $('#checkout-copy').textContent=copy;$('#checkout-copy').hidden=!copy;
@@ -189,7 +237,7 @@ function schedulePoll(delay=6000) {clearTimeout(pollTimer);if(!activeCheckout ||
 async function pollStatus(manual=false) {
   if(!activeCheckout)return;
   if(!manual && pollCount>=150){$('#status-detail').textContent=t('autoCheckPaused');return;}
-  const button=$('#status-refresh');button.disabled=true;button.textContent=t('checking');const id=activeCheckout.id;
+  const button=$('#status-refresh');button.disabled=true;$('#status-refresh-label').textContent=t('checking');const id=activeCheckout.id;
   try {
     const status=await request(`/api/donations/${encodeURIComponent(id)}?token=${encodeURIComponent(activeCheckout.status_token)}`);
     if(activeCheckout?.id!==id)return;
@@ -199,7 +247,7 @@ async function pollStatus(manual=false) {
   }catch{
     if(activeCheckout?.id!==id)return;
     activeCheckout.pollError=true;$('#status-detail').textContent=t('statusUnavailable');pollCount++;schedulePoll(15000);
-  }finally {button.disabled=false;button.textContent=t('checkPayment');}
+  }finally {button.disabled=false;$('#status-refresh-label').textContent=t('checkPayment');}
 }
 $('#donation-form').addEventListener('submit',async event=>{
   event.preventDefault();if(submissionBusy || donorBusy || !site)return;
@@ -230,6 +278,7 @@ $('#donation-form').addEventListener('submit',async event=>{
   finally{submissionBusy=false;$('#donate-button').disabled=donorBusy || !$('input[name=method_id]:not(:disabled)');$('#donate-button span').textContent=t('donate');renderDonorAccount();}
 });
 $('#amount').addEventListener('input',()=>{$('#amount-error').hidden=true;markPreset();});
+$('#random-amount').addEventListener('click',randomizeAmount);
 $('#currency').addEventListener('change',()=>setCurrency($('#currency').value));
 $('#language').addEventListener('change',()=>{locale=$('#language').value;storeValue('token-language',locale);applyLanguage();setCurrency(site?.language_currencies?.[locale] || {'zh-CN':'CNY','zh-TW':'TWD',en:'USD'}[locale]);renderRecent();});
 $$('[data-policy]').forEach(button=>button.addEventListener('click',()=>showPolicy(button.dataset.policy)));
@@ -299,7 +348,7 @@ function clearAccountFeedback() {
 }
 function renderDonorAccount() {
   const loggedIn=!!donorSession.authenticated;
-  $('#donor-account-entry').textContent=t(loggedIn?'account':'signIn');
+  $('#donor-account-label').textContent=t(loggedIn?'account':'signIn');
   $('#donor-account-entry').disabled=submissionBusy;
   $('#donate-button').disabled=submissionBusy || donorBusy || !$('input[name=method_id]:not(:disabled)');
   $('#donor-title').textContent=t(loggedIn?'account':'signIn');

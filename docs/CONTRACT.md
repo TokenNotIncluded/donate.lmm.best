@@ -12,6 +12,7 @@
 | `GET /api/donations/{id}?token=STATUS_TOKEN` | 以独立访问令牌读取付款状态及待付款的二维码、说明和链接 |
 | `GET /api/stats?currency=USD` | 只统计已确认的捐赠，返回选定币种及分币种汇总 |
 | `GET /api/private/stats?currency=USD` | 同类聚合数据，要求 `Authorization: Bearer STATS_TOKEN` |
+| `GET /badge.svg?currency=USD&lang=en&period=30d` | 可公开嵌入的 SVG 捐款总额与笔数，不包含捐赠者资料 |
 | `GET /healthz` | 应用与数据库健康检查 |
 | `POST /api/webhooks/{provider}?method_id=METHOD_ID` | 支付平台验签回调，provider 为 waffo、stripe 或 paypal |
 | `GET /api/paypal/return?token=ORDER_ID&donation=ID&status_token=STATUS_TOKEN` | PayPal 返回后在服务器完成 capture，再跳转到状态页 |
@@ -36,6 +37,8 @@ curl http://localhost:8080/api/donations \
 `Idempotency-Key` 为 20–80 位 ASCII 字母、数字、下划线或连字符。一次操作重试保持相同请求和 key；不同内容使用原 key 返回 409。结果不明的线上结账超过 5 小时后停止自动创建重试，需要先核对渠道，避免跨渠道幂等缓存期限重复创建。已知结账链接直接恢复。平台的币种、金额等本地限制在入库前检查。
 
 统计返回 `{count,total_minor,currency,by_currency:[{currency,count,total_minor}],methods:[{method_id,method_name,currency,count,total_minor}],daily:[{date,currency,count,total_minor}]}`，同一次响应来自一致的数据库快照。`daily` 为最近 90 天、UTC 日期。线上 `paid_at` 是本站处理支付确认的时间；手动记录可填写实际到账时间。通知同时提供事件 `created_at`。
+
+`/badge.svg` 只汇总选定币种的 `confirmed` 记录，无需登录或统计令牌。`period=all|7d|30d|year`，7/30 天按 UTC 当前时刻滚动，`year` 从 UTC 当年 1 月 1 日起算，未来到账时间不计入。`lang=zh-CN|zh-TW|en`，`layout=receipt|compact`，`theme=dark|light|transparent`，`width=240..1200`；默认 `all`、`en`、`receipt`、`dark`、宽度 480（紧凑版 440）。`currency` 默认站点币种。`title` 最多 40 字，`amount_label`、`count_label` 最多 24 字，均为单行纯文本；`animation=none|steam`，默认无动画。非法参数返回 400。SVG 使用 `Cache-Control: public, max-age=300` 和内容 ETag，支持 HEAD 与条件请求；外部图片代理可能有额外缓存。
 
 ## 捐赠者账号
 
