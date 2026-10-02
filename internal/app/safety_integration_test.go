@@ -100,15 +100,24 @@ func TestCSVExportNeutralizesUserControlledSpreadsheetFormulas(t *testing.T) {
 	rr = requestJSON(t, http.HandlerFunc(a.exportDonations), http.MethodGet, "/api/admin/export", nil, nil)
 	expectStatus(t, rr, http.StatusOK)
 	rows, err := csv.NewReader(strings.NewReader(rr.Body.String())).ReadAll()
-	if err != nil || len(rows) != 2 || len(rows[1]) != 13 {
+	if err != nil || len(rows) != 2 || len(rows[0]) != len(rows[1]) {
 		t.Fatalf("invalid CSV: rows=%v err=%v", rows, err)
 	}
-	for _, column := range []int{4, 5, 7, 12} {
-		if !strings.HasPrefix(rows[1][column], "'") {
-			t.Fatalf("formula was not escaped in CSV column %q: %q", rows[0][column], rows[1][column])
+	value := func(column string) string {
+		for i, header := range rows[0] {
+			if header == column {
+				return rows[1][i]
+			}
+		}
+		t.Fatalf("CSV is missing column %q", column)
+		return ""
+	}
+	for _, column := range []string{"payment_method", "name", "message", "reference"} {
+		if !strings.HasPrefix(value(column), "'") {
+			t.Fatalf("formula was not escaped in CSV column %q: %q", column, value(column))
 		}
 	}
-	if rows[1][2] != "500" || rows[1][3] != "JPY" || rows[1][6] != in.Email || !strings.Contains(rr.Header().Get("Content-Disposition"), "attachment") {
+	if value("amount_minor") != "500" || value("currency") != "JPY" || value("email") != in.Email || !strings.Contains(rr.Header().Get("Content-Disposition"), "attachment") {
 		t.Fatal("CSV modified safe data or did not download as an attachment")
 	}
 }

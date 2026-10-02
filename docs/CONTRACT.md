@@ -9,7 +9,10 @@
 | `GET /api/site` | 公开网站文本、语言与币种设置、启用的支付方式、统计和同意公开的感谢记录 |
 | `GET /terms`、`GET /privacy` | 独立政策页面，`?lang=en` 等选择已配置的语言；直接读取后台文本 |
 | `POST /api/donations` | 创建待确认捐赠并返回支付链接或二维码 |
+| `GET /api/projects` | 公开启用项目及筹款进度，返回 `{projects:[...]}` |
+| `GET /api/projects/{id}` | 单个启用项目，未知或归档项目返回 404 |
 | `GET /api/donations/{id}?token=STATUS_TOKEN` | 以独立访问令牌读取付款状态及待付款的二维码、说明和链接 |
+| `POST /api/donations/{id}/cancel` | 以 JSON `{status_token}` 取消未完成的付款等待；要求本站 Origin |
 | `GET /api/stats?currency=USD` | 只统计已确认的捐赠，返回选定币种及分币种汇总 |
 | `GET /api/private/stats?currency=USD` | 同类聚合数据，要求 `Authorization: Bearer STATS_TOKEN` |
 | `GET /badge.svg?currency=USD&lang=en&period=30d` | 可公开嵌入的 SVG 捐款总额与笔数，不包含捐赠者资料 |
@@ -32,13 +35,29 @@ curl http://localhost:8080/api/donations \
   --data '{"amount_minor":1500,"currency":"USD","method_id":"custom-main","name":"","email":"","message":"","public":false,"accepted_terms":true}'
 ```
 
-返回 `{id,status,checkout_url,qr_url,instructions,status_token}`。未到账为 `pending`，到账为 `confirmed`，全额退款为 `refunded`。`accepted_terms:true` 表示捐赠人已阅读协议和隐私说明，前端在操作附近提供可打开的文本。`status_token` 是访问凭据，不应公开分享状态链接。自定义方式只有管理员核实后才确认；在线方式只有验签回调或服务端 PayPal capture 才确认，网页返回参数不构成付款证明。
+返回 `{id,status,checkout_url,qr_url,instructions,status_token,expires_at,can_cancel}`。未到账为 `pending`，到账为 `confirmed`，全额退款为 `refunded`，主动取消为 `cancelled`，线上等待超时为 `expired`。`accepted_terms:true` 表示捐赠人已阅读协议和隐私说明，前端在操作附近提供可打开的文本。`status_token` 是访问凭据，不应公开分享状态链接。自定义方式只有管理员核实后才确认；在线方式只有验签回调或服务端 PayPal capture 才确认，网页返回参数不构成付款证明。
+
+线上待付款记录默认 45 分钟后过期，后台定时处理，读取状态时也检查期限；重启不会延长期限。自定义二维码和线下记录不自动过期。取消需原状态令牌；已登录捐赠者还需自己的 `X-CSRF-Token`，已关联账号的记录须匹配该账号。取消重复请求安全，已到账或退款返回 409，不执行退款。取消或过期后不再返回继续付款的入口，同一幂等请求不会复活该订单。支付渠道已提交的付款可能晚到，通过真实验签的成功仍会入账、统计并只通知一次。
+
+支付返回页只在重新读取服务器的 `confirmed` 状态后显示感谢页及金额；刷新仍重新核实。前端把状态令牌保存在当前标签页的 `sessionStorage` 中，并从可分享的网址移除，不缓存付款成功状态。
 
 `Idempotency-Key` 为 20–80 位 ASCII 字母、数字、下划线或连字符。一次操作重试保持相同请求和 key；不同内容使用原 key 返回 409。结果不明的线上结账超过 5 小时后停止自动创建重试，需要先核对渠道，避免跨渠道幂等缓存期限重复创建。已知结账链接直接恢复。平台的币种、金额等本地限制在入库前检查。
 
 统计返回 `{count,total_minor,currency,by_currency:[{currency,count,total_minor}],methods:[{method_id,method_name,currency,count,total_minor}],daily:[{date,currency,count,total_minor}]}`，同一次响应来自一致的数据库快照。`daily` 为最近 90 天、UTC 日期。线上 `paid_at` 是本站处理支付确认的时间；手动记录可填写实际到账时间。通知同时提供事件 `created_at`。
 
 `/badge.svg` 只汇总选定币种的 `confirmed` 记录，无需登录或统计令牌。`period=all|7d|30d|year`，7/30 天按 UTC 当前时刻滚动，`year` 从 UTC 当年 1 月 1 日起算，未来到账时间不计入。`lang=zh-CN|zh-TW|en`，`layout=receipt|compact`，`theme=dark|light|transparent`，`width=240..1200`；默认 `all`、`en`、`receipt`、`dark`、宽度 480（紧凑版 440）。`currency` 默认站点币种。`title` 最多 40 字，`amount_label`、`count_label` 最多 24 字，均为单行纯文本；`animation=none|steam`，默认无动画。非法参数返回 400。SVG 使用 `Cache-Control: public, max-age=300` 和内容 ETag，支持 HEAD 与条件请求；外部图片代理可能有额外缓存。
+
+## 项目与公开致谢
+
+后台创建项目使用 `{id,name,url,currency,target_minor,active}`，`id` 为 1–64 位小写字母、数字或中间连字符，创建后固定。`target_minor` 为正整数最小货币单位，例如 CNY 100000 是 ¥1,000。项目链接可空，否则要求 HTTPS。项目返回额外的 `{raised_minor,count,progress,donate_url,badge_url,created_at,updated_at}`；`progress` 为 0–100 的百分比，超出目标的实际已筹金额不会截断。只累计该项目、相同币种、已经确认且到账时间不在未来的记录，退款不计入。
+
+捐赠请求和后台手工录入可增加 `project_id`，为空表示通用捐赠。非空时必须是启用项目且币种与项目一致，否则拒绝创建；旧记录不自动归属项目。已创建记录不能改项目。付款状态、后台记录、CSV 和私人到账通知包含项目标识；项目改名不改变捐款归属。
+
+`/?project=magicnet` 显示该项目进度并固定币种。`/badge.svg?project=magicnet` 展示其已筹金额、目标及进度，使用全部时间与项目币种；显式传入不一致币种或非 `all` 周期返回 400。未知或归档项目返回 404。SVG 不含个人信息；在 README 外层使用项目 `donate_url` 作为点击链接。
+
+新增 `public_thanks` 是每笔捐赠独立的布尔许可，默认 `false`，允许维护者在专门制作的致谢网页或小游戏中展示昵称，未填写昵称则按匿名处理。它与原 `public`（本站公开称呼及留言）互不推断，旧记录不会自动获得新用途许可。后台可核对、筛选授权，待付款记录不作为已完成捐赠致谢；邮箱始终不公开。
+
+公告使用 `site.announcement`、可选 `site.announcement_url`，以及 `site.translations[语言].announcement`。文本为纯文本，最多 2000 字节；链接须为不含用户凭据的绝对 HTTPS 地址，最多 2048 字节。当前语言的公告文本为空时不显示，占位不留空白；有链接但全部公告文本为空时拒绝保存。
 
 ## 捐赠者账号
 
@@ -55,6 +74,8 @@ curl http://localhost:8080/api/donations \
 | `GET /api/donor/donations?limit=20&offset=0` | 当前账号的捐赠历史，返回 `{donations,total,limit,offset}` |
 
 用户 Cookie 与后台 Cookie 独立，采用 HttpOnly、SameSite Strict；HTTPS 下为 Secure。注册和登录挑战有期限、绑定发起浏览器且只能消费一次，要求设备用户验证和精确 Origin。已登录用户的写请求使用该用户会话的 `X-CSRF-Token`。
+
+首页登录也接受当前有效的管理员 Passkey。验签仍使用后台保存的权威凭证及签名计数，只建立普通用户会话，并将管理员关联到固定的用户 ID；不会签发后台 Cookie，也不会把用户 Passkey 加入管理员凭证集合。管理员命令行重置后旧凭证失效，关联账号及捐赠历史保留；该账号另外绑定的用户备用 Passkey 仍按普通用户凭证验证。
 
 `POST /api/donations` 仅由服务器从当前会话取得账号 ID。客户端不能指定捐款归属；匿名记录不会因相同姓名或邮箱自动归入账号。身份参与幂等请求核对，换账号后不能复用原操作取得其他人的付款状态凭据。用户历史不返回状态 token，不公开账号标识或其他用户的私人信息。后台记录额外提供 `donor_user_id`，空字符串表示访客；这是固定身份标识，不代表已授予任何权益。已登录捐款的私人通知也包含 `donor_user_id`，访客通知省略该字段。
 
@@ -80,9 +101,12 @@ curl http://localhost:8080/api/donations \
 | --- | --- |
 | `GET /api/admin/settings` | `{site,methods,webhook,smtp,stats_token}`，仅认证管理员可读取凭据 |
 | `PUT /api/admin/settings` | 完整设置对象；返回 `{saved:true}` |
+| `GET /api/admin/projects` | 全部项目，包括已归档项目及各自进度 |
+| `POST /api/admin/projects` | 创建项目，要求 Idempotency-Key，相同请求重试返回原结果 |
+| `PUT /api/admin/projects/{id}` | 编辑名称、链接、目标和状态；币种有捐款后不能修改，ID 固定 |
 | `POST /api/admin/upload` | multipart `file`，PNG/JPEG/WebP ≤2MB，完整有效图像，16–8192px，≤3200万像素；返回 `{url}` |
-| `GET /api/admin/donations?status=&limit=100&offset=0` | `{donations:[...],total}`，status 可空或 pending/confirmed/refunded |
-| `POST /api/admin/donations` | `{amount_minor,currency,method_id,method_name,name,email,message,public,paid_at,reference}`，手动确认，支持 Idempotency-Key |
+| `GET /api/admin/donations?status=&limit=100&offset=0` | `{donations:[...],total}`；状态可空或 pending/confirmed/refunded/cancelled/expired，可加 `project_id` 与 `public_thanks=true\|false` 筛选 |
+| `POST /api/admin/donations` | `{amount_minor,currency,method_id,method_name,name,email,message,public,public_thanks,project_id,paid_at,reference}`，手动确认，支持 Idempotency-Key；公开致谢许可默认 false，需实际获得捐赠者授权 |
 | `POST /api/admin/donations/{id}/confirm` | `{reference,paid_at}`，只确认自定义方式，重复确认不重复记账或通知 |
 | `GET /api/admin/export` | 捐赠 CSV，用户输入防止表格公式执行 |
 | `GET /api/admin/notifications` | `{notifications:[{id,event_id,kind,status,attempts,last_error,created_at}]}` |

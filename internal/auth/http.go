@@ -286,6 +286,10 @@ func (m *Manager) acceptRegistration(r *http.Request, sess session, generation i
 		return session{}, "", err
 	}
 	defer tx.Rollback()
+	// Serialize cross-role credential enrollment before reading either owner.
+	if _, err = tx.Exec("UPDATE auth_state SET generation=generation WHERE id=1"); err != nil {
+		return session{}, "", err
+	}
 	var enabled bool
 	var currentGeneration int64
 	if err = tx.QueryRow("SELECT password_enabled,generation FROM auth_state WHERE id=1").Scan(&enabled, &currentGeneration); err != nil || currentGeneration != generation {
@@ -301,6 +305,12 @@ func (m *Manager) acceptRegistration(r *http.Request, sess session, generation i
 	}
 	if count >= 10 {
 		return session{}, "", errors.New("too many passkeys")
+	}
+	if used, checkErr := donorCredentialIDInUse(r.Context(), tx, credential.ID); checkErr != nil || used {
+		if checkErr != nil {
+			return session{}, "", checkErr
+		}
+		return session{}, "", errStale
 	}
 	if _, err = tx.Exec("INSERT INTO auth_credentials(id,data,active,generation) VALUES(?,?,1,?)", base64.RawURLEncoding.EncodeToString(credential.ID), raw, generation); err != nil {
 		return session{}, "", err
@@ -379,8 +389,8 @@ func (m *Manager) loginFinish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if credential.Authenticator.CloneWarning {
-		m.quarantineCredential(r, c.generation, credential)
-		fail(w, http.StatusUnauthorized, "检测到 Passkey 计数异常，已撤销登录；请使用其他 Passkey 或命令行重置")
+		m.quarantineCredential(r, c.generation, u, credential)
+		fail(w, http.StatusUnauthorized, "本次登录已拒绝，Passkey 计数异常；请使用其他 Passkey 或命令行重置")
 		return
 	}
 	sess, token, err := m.acceptLogin(r, c.generation, u, credential)
@@ -393,32 +403,13 @@ func (m *Manager) loginFinish(w http.ResponseWriter, r *http.Request) {
 }
 
 func (m *Manager) acceptLogin(r *http.Request, generation int64, u adminUser, credential *webauthn.Credential) (session, string, error) {
-	var previous []byte
-	for _, old := range u.credentials {
-		if subtle.ConstantTimeCompare(old.ID, credential.ID) == 1 {
-			previous, _ = json.Marshal(old)
-			break
-		}
-	}
-	if previous == nil {
-		return session{}, "", errStale
-	}
-	raw, err := json.Marshal(credential)
-	if err != nil {
-		return session{}, "", err
-	}
 	tx, err := m.db.BeginTx(r.Context(), nil)
 	if err != nil {
 		return session{}, "", err
 	}
 	defer tx.Rollback()
-	result, err := tx.Exec(`UPDATE auth_credentials SET data=? WHERE id=? AND generation=? AND active=1 AND data=?
-AND EXISTS(SELECT 1 FROM auth_state WHERE id=1 AND generation=? AND password_enabled=0)`, raw, base64.RawURLEncoding.EncodeToString(credential.ID), generation, previous, generation)
-	if err != nil {
+	if err = updateVerifiedCredential(r.Context(), tx, generation, u, credential); err != nil {
 		return session{}, "", err
-	}
-	if n, _ := result.RowsAffected(); n != 1 {
-		return session{}, "", errStale
 	}
 	if old, cookieErr := r.Cookie(m.sessionCookie); cookieErr == nil {
 		if _, err = tx.Exec("DELETE FROM auth_sessions WHERE token_hash=?", tokenHash(old.Value)); err != nil {
@@ -435,24 +426,13 @@ AND EXISTS(SELECT 1 FROM auth_state WHERE id=1 AND generation=? AND password_ena
 	return sess, token, nil
 }
 
-func (m *Manager) quarantineCredential(r *http.Request, generation int64, credential *webauthn.Credential) {
+func (m *Manager) quarantineCredential(r *http.Request, generation int64, u adminUser, credential *webauthn.Credential) {
 	tx, err := m.db.BeginTx(r.Context(), nil)
 	if err != nil {
 		return
 	}
 	defer tx.Rollback()
-	result, err := tx.Exec(`UPDATE auth_credentials SET active=0 WHERE id=? AND generation=?
-AND EXISTS(SELECT 1 FROM auth_state WHERE id=1 AND generation=?)`, base64.RawURLEncoding.EncodeToString(credential.ID), generation, generation)
-	if err != nil {
-		return
-	}
-	if n, _ := result.RowsAffected(); n == 0 {
-		return
-	}
-	if _, err = tx.Exec("DELETE FROM auth_sessions WHERE generation=?", generation); err != nil {
-		return
-	}
-	if _, err = tx.Exec("DELETE FROM auth_challenges WHERE generation=?", generation); err != nil {
+	if err = quarantineVerifiedCredential(r.Context(), tx, generation, u, credential); err != nil {
 		return
 	}
 	_ = tx.Commit()

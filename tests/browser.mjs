@@ -8,6 +8,7 @@ import {mkdir, mkdtemp, readFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
 import {createServer} from 'node:net';
+import {createHmac} from 'node:crypto';
 import {chromium} from 'playwright';
 
 const root = resolve(import.meta.dirname, '..');
@@ -99,13 +100,15 @@ async function donorState(context) {
   return state.data;
 }
 async function confirmedReceipt(page) {
-  if(!(await page.locator('#checkout-title').textContent()).includes('confirmed')) {
+  if(!(await page.locator('#donation-thanks').isVisible())) {
     await page.locator('#status-refresh').click({timeout:2000}).catch(async error => {
       // Automatic polling may complete while Playwright is locating the button.
-      if(!(await page.locator('#checkout-title').textContent()).includes('confirmed')) throw error;
+      if(!(await page.locator('#donation-thanks').isVisible())) throw error;
     });
   }
-  await textIncludes(page,'#checkout-title','confirmed');
+  await visible(page,'#donation-thanks');
+  await hidden(page,'#checkout-status');
+  assert.ok(!(new URL(page.url()).searchParams.has('status_token')),'A verified receipt URL must not expose its capability');
 }
 async function crossRoleAssertion(page, prefix) {
   return page.evaluate(async prefix => {
@@ -121,8 +124,8 @@ async function crossRoleAssertion(page, prefix) {
     if(!begin.ok)return {stage:'begin',status:begin.status};
     const {publicKey} = await begin.json();
     publicKey.challenge = decode(publicKey.challenge);
-    // A hostile client can remove a browser credential filter. The server must
-    // still reject a genuine signature made with the other role's resident key.
+    // Credential filters are client-side hints. Exercise the server's role
+    // policy with a genuine signature from the resident key on this device.
     publicKey.allowCredentials = [];
     publicKey.timeout = 3000;
     const credential = await navigator.credentials.get({publicKey});
@@ -135,15 +138,16 @@ async function crossRoleAssertion(page, prefix) {
     return {stage:'finish',status:finish.status};
   }, prefix);
 }
-async function createCustomDonation(page, amount, {name='',email='',message='',publicName=false} = {}) {
+async function createCustomDonation(page, amount, {name='',email='',message='',publicName=false,publicThanks=false,currency='USD'} = {}) {
   await visible(page,'#donation-form');
-  await page.locator('#currency').selectOption('USD');
+  if(await page.locator('#currency').inputValue()!==currency)await page.locator('#currency').selectOption(currency);
   await page.locator('#amount').fill(String(amount));
   if(!await page.locator('.donor-details').evaluate(element => element.open)) await page.locator('.donor-details summary').click();
   await page.locator('#donor-name').fill(name);
   await page.locator('#donor-email').fill(email);
   await page.locator('#donor-message').fill(message);
   await page.locator('#donor-public').setChecked(publicName);
+  await page.locator('#donor-public-thanks').setChecked(publicThanks);
   const [response] = await Promise.all([
     page.waitForResponse(response => response.url() === `${base}/api/donations` && response.request().method() === 'POST'),
     page.locator('#donate-button').click()
@@ -151,6 +155,70 @@ async function createCustomDonation(page, amount, {name='',email='',message='',p
   assert.equal(response.status(),200,await response.text());
   await visible(page,'#checkout-qr');
   return {donation:await response.json(),request:response.request()};
+}
+function updateFixtureDonation(id, changes) {
+  const allowed=new Set(['method_id','method_type','method_name','provider_ref','expires_at','status']);
+  assert.ok(Object.keys(changes).every(key => allowed.has(key)),'Only declared disposable lifecycle fixture columns may change');
+  // Python's SQLite module edits only the database created by this script.
+  // No provider API is called to manufacture a hosted checkout or a refund.
+  execFileSync('python3',['-c',`import json, sqlite3, sys
+changes = json.loads(sys.argv[3])
+with sqlite3.connect(sys.argv[1], timeout=10) as db:
+    cursor = db.execute('UPDATE donations SET ' + ','.join(key+'=?' for key in changes) + ' WHERE id=?', [*changes.values(), sys.argv[2]])
+    assert cursor.rowcount == 1
+`,resolve(dataDir,'donate.sqlite'),id,JSON.stringify(changes)],{stdio:'pipe'});
+}
+async function signedFixturePayment(context, donation, methodID, currency, amountMinor) {
+  const body=JSON.stringify({id:`evt_browser_${donation.id}`,type:'checkout.session.completed',livemode:false,data:{object:{id:`cs_browser_${donation.id}`,client_reference_id:donation.id,mode:'payment',payment_status:'paid',currency:currency.toLowerCase(),amount_total:amountMinor,metadata:{donation_id:donation.id,method_id:methodID}}}});
+  const timestamp=String(Math.floor(Date.now()/1000));
+  const signature=createHmac('sha256','whsec_browser_fixture').update(`${timestamp}.${body}`).digest('hex');
+  const path=`/api/webhooks/stripe?method_id=${methodID}`;
+  for(let attempt=0;attempt<2;attempt++) {
+    const response=await context.request.post(`${base}${path}`,{headers:{'Content-Type':'application/json','Stripe-Signature':`t=${timestamp},v1=${signature}`},data:body});
+    assert.equal(response.status(),200,await response.text());
+  }
+}
+async function receiptSharingSecurity(page, donation, currency, amountText) {
+  await confirmedReceipt(page);
+  await textIncludes(page,'#thanks-title','Thank you');
+  await textIncludes(page,'#thanks-amount',amountText);
+  assert.equal(await page.locator('#thanks-currency').textContent(),currency);
+  assert.equal(await page.evaluate(id => sessionStorage.getItem(`donate-receipt:${id}`),donation.id),donation.status_token,'Receipt storage contains only the capability, never a cached paid status');
+  const sharedURL=page.url();
+  assert.ok(!sharedURL.includes(donation.status_token));
+  const [fresh]=await Promise.all([
+    page.waitForResponse(response => new URL(response.url()).pathname===`/api/donations/${donation.id}` && response.request().method()==='GET'),
+    page.reload()
+  ]);
+  assert.equal(fresh.status(),200);
+  await visible(page,'#donation-thanks');
+  await textIncludes(page,'#thanks-amount',amountText);
+  const context=await browser.newContext({locale:'en-US',viewport:{width:390,height:844}});
+  const other=await context.newPage();
+  watch(other);
+  try {
+    let receiptReads=0;
+    other.on('request',request => {if(new URL(request.url()).pathname===`/api/donations/${donation.id}`)receiptReads++;});
+    await other.goto(sharedURL);
+    await visible(other,'#donation-form');
+    await hidden(other,'#donation-thanks');
+    assert.equal(receiptReads,0,'A token-free shared URL must not retrieve the private receipt on another device');
+    await other.goto(`${base}/?donation=unknown-fixture&status=confirmed&amount_minor=999999&currency=USD`);
+    await visible(other,'#donation-form');
+    await hidden(other,'#donation-thanks');
+    await other.evaluate(id => sessionStorage.setItem(`donate-receipt:${id}`,JSON.stringify({status:'confirmed',amount_minor:999999,currency:'USD'})),donation.id);
+    const [rejected]=await Promise.all([
+      other.waitForResponse(response => new URL(response.url()).pathname===`/api/donations/${donation.id}`),
+      other.goto(sharedURL)
+    ]);
+    assert.equal(rejected.status(),404,'Fabricated paid data in browser storage is not a receipt capability');
+    await hidden(other,'#donation-thanks');
+    await context.route(`${base}/api/donations/unknown-status?*`,route => route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id:'unknown-status',status:'unrecognized',amount_minor:999999,currency:'USD',can_cancel:false})}));
+    await other.goto(`${base}/?donation=unknown-status&status_token=fixture&status=confirmed`);
+    await textIncludes(other,'#checkout-title','Pending');
+    await hidden(other,'#donation-thanks');
+    assert.ok(!new URL(other.url()).searchParams.has('status_token'));
+  } finally {await context.close();}
 }
 function watch(page) {
   lastPage = page;
@@ -346,7 +414,7 @@ async function checkoutVisualScenarios() {
   page.on('request',request => {if(request.method()==='POST' && new URL(request.url()).pathname==='/api/donations')posts++;});
   await context.route(`${base}/api/site`,route => route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(site)}));
   // Receipt presentation alone: no order is created or sent to a provider.
-  await context.route(/\/api\/donations\/visual-fixture\?/,route => route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id:'visual-fixture',status:state,amount_minor:1500,currency:'USD',method_name:'Fixture QR',custom:true,qr_url:state==='pending' ? qrURL : '',checkout_url:'',paid_at:state==='confirmed' ? '2026-10-03T00:00:00Z' : ''})}));
+  await context.route(/\/api\/donations\/visual-fixture\?/,route => route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id:'visual-fixture',status:state,amount_minor:1500,currency:'USD',method_name:'Fixture QR',custom:true,can_cancel:state==='pending',expires_at:'',qr_url:state==='pending' ? qrURL : '',checkout_url:'',paid_at:state==='confirmed' ? '2026-10-03T00:00:00Z' : ''})}));
   try {
     await step('Checkout presentation: desktop and narrow pending, confirmed and failed fixtures render real sprite icons without creating payments',async () => {
       await page.goto(base);
@@ -361,8 +429,15 @@ async function checkoutVisualScenarios() {
       for(const [status,title] of [['pending','Pending payment'],['confirmed','Donation confirmed'],['failed','Payment failed']]) {
         state=status;
         await page.goto(`${base}/?donation=visual-fixture&status_token=visual-token`);
-        await textIncludes(page,'#checkout-title',title);
-        await paintedIcon(page,'#checkout-icon');
+        if(status==='confirmed') {
+          await visible(page,'#donation-thanks');
+          await textIncludes(page,'#thanks-amount','15.00');
+          await textIncludes(page,'#thanks-currency','USD');
+        } else {
+          await textIncludes(page,'#checkout-title',title);
+          await hidden(page,'#donation-thanks');
+          await paintedIcon(page,'#checkout-icon');
+        }
         if(status==='pending')await visible(page,'#checkout-qr');else await hidden(page,'#checkout-qr-container');
         for(const width of [1440,390,320]) {
           await page.setViewportSize({width,height:width===1440 ? 1050 : 844});
@@ -371,6 +446,300 @@ async function checkoutVisualScenarios() {
         }
       }
       assert.equal(posts,0,'Visual state fixtures must never create donations');
+    });
+  } finally {await context.close();}
+}
+
+async function projectLifecycleScenarios(admin,adminContext,donorContext,methodID) {
+  const guestContext=await browser.newContext({locale:'en-US',viewport:{width:1440,height:1050}});
+  const guest=await guestContext.newPage();
+  const owner=await donorContext.newPage();
+  watch(guest);watch(owner);
+  let project,cancelledGuest,cancelledOwner,expired;
+  const projectState=async () => {
+    const result=await api(guestContext,`/api/projects/${project.id}`);
+    assert.equal(result.status,200);
+    return result.data;
+  };
+  const confirmOffline=async donation => {
+    const session=(await api(adminContext,'/api/auth/status')).data;
+    const result=await api(adminContext,`/api/admin/donations/${donation.id}/confirm`,{method:'POST',headers:{Origin:base,'X-CSRF-Token':session.csrf_token},data:{reference:`project-fixture-${donation.id}`,paid_at:new Date().toISOString()}});
+    assert.equal(result.status,200);
+  };
+  const cancelUI=async (page,donation) => {
+    await visible(page,'#cancel-payment');
+    const [response]=await Promise.all([
+      page.waitForResponse(response => new URL(response.url()).pathname===`/api/donations/${donation.id}/cancel` && response.request().method()==='POST'),
+      page.locator('#cancel-payment').click()
+    ]);
+    assert.equal(response.status(),200,await response.text());
+    assert.equal(response.request().postDataJSON().status_token,donation.status_token);
+    await textIncludes(page,'#checkout-title','Cancelled');
+    await hidden(page,'#donation-thanks');
+    await hidden(page,'#cancel-payment');
+    await hidden(page,'#checkout-qr-container');
+    const receipt=(await api(page.context(),`/api/donations/${donation.id}?token=${donation.status_token}`)).data;
+    assert.equal(receipt.status,'cancelled');
+    assert.equal(receipt.can_cancel,false);
+    assert.ok(!receipt.checkout_url && !receipt.qr_url,'Terminal receipts must expose no payment instructions');
+    return response.request();
+  };
+  try {
+    await step('Project administration creates a real CNY goal; public language changes retain its currency and invalid checkout inputs create no records',async () => {
+      await admin.locator('[data-view=projects]').click();
+      await admin.locator('#project-new').click();
+      await admin.locator('[name=project-id]').fill('browser-funding');
+      await admin.locator('[name=project-name]').fill('Browser funding fixture');
+      await admin.locator('[name=project-url]').fill('https://example.com/browser-funding');
+      await admin.locator('[name=project-currency]').selectOption('CNY');
+      await admin.locator('[name=project-target]').fill('1000');
+      await admin.locator('[name=project-active]').check();
+      const [created]=await Promise.all([
+        admin.waitForResponse(response => new URL(response.url()).pathname==='/api/admin/projects' && response.request().method()==='POST'),
+        admin.locator('#project-form button[type=submit]').click()
+      ]);
+      assert.equal(created.status(),201,await created.text());
+      assert.ok(created.request().headers()['idempotency-key']);
+      project=await created.json();
+      assert.equal(project.id,'browser-funding');
+      assert.equal(project.currency,'CNY');
+      assert.equal(project.target_minor,100000);
+      assert.equal(project.raised_minor,0);
+      const existing=(await api(adminContext,'/api/admin/donations')).data.donations;
+      assert.equal(existing.find(row => row.name==='Public fixture supporter').public_thanks,false,'Existing public-display consent must not grant the new public-thanks permission');
+      assert.equal(existing.find(row => row.name==='Private fixture supporter').public_thanks,true,'Manual entry saves only the explicitly selected public-thanks consent');
+      await guest.goto(`${base}/?project=${project.id}`);
+      await visible(guest,'#project-overview');
+      await textIncludes(guest,'#project-name',project.name);
+      await textIncludes(guest,'#project-goal','1,000');
+      assert.equal(await guest.locator('#currency').inputValue(),'CNY');
+      await guest.locator('#language').selectOption('zh-CN');
+      assert.equal(await guest.locator('#currency').inputValue(),'CNY');
+      await guest.locator('#language').selectOption('en');
+      assert.equal(await guest.locator('#currency').inputValue(),'CNY');
+      assert.equal(Number(await guest.locator('#project-progress-value').getAttribute('width')),0);
+      const before=(await api(adminContext,'/api/admin/donations')).data.total;
+      for(const invalid of [
+        {project_id:project.id,currency:'USD',amount_minor:1000},
+        {project_id:'missing-fixture',currency:'CNY',amount_minor:1000},
+        {project_id:project.id,currency:'CNY',amount_minor:1000.5},
+        ...[null,'true',1].map(public_thanks => ({project_id:project.id,currency:'CNY',amount_minor:1000,public_thanks}))
+      ]) {
+        const response=await api(guestContext,'/api/donations',{method:'POST',headers:{Origin:base},data:{...invalid,method_id:methodID,accepted_terms:true}});
+        assert.equal(response.status,400);
+      }
+      assert.equal((await api(adminContext,'/api/admin/donations')).data.total,before);
+      assert.equal((await api(guestContext,'/api/projects/missing-fixture')).status,404);
+    });
+    await step('Guest and donor cancel pending project donations; hosted expiry is server-confirmed and neither terminal state raises the goal',async () => {
+      cancelledGuest=(await createCustomDonation(guest,8,{currency:'CNY'})).donation;
+      assert.equal(cancelledGuest.project_id,project.id);
+      assert.equal(cancelledGuest.expires_at,'','Offline QR payments have no hosted automatic deadline');
+      const guestCancel=await cancelUI(guest,cancelledGuest);
+      assert.equal(guestCancel.headers()['x-csrf-token'] || '','');
+      assert.equal((await api(guestContext,`/api/donations/${cancelledGuest.id}/cancel`,{method:'POST',headers:{Origin:base},data:{status_token:cancelledGuest.status_token}})).status,200);
+      await owner.goto(`${base}/?project=${project.id}`);
+      await visible(owner,'#project-overview');
+      assert.equal(await owner.locator('#donor-public-thanks').isChecked(),false,'Each new donation requires a fresh public-thanks opt-in');
+      const owned=await createCustomDonation(owner,9,{currency:'CNY',name:'Project account fixture',email:'project-permission-private@example.com',publicThanks:true});
+      cancelledOwner=owned.donation;
+      assert.equal(owned.request.postDataJSON().project_id,project.id);
+      assert.equal(owned.request.postDataJSON().public_thanks,true);
+      const ownerCancel=await cancelUI(owner,cancelledOwner);
+      const ownerSession=await donorState(donorContext);
+      assert.equal(ownerCancel.headers()['x-csrf-token'],ownerSession.csrf_token);
+      const row=(await api(adminContext,'/api/admin/donations')).data.donations.find(row => row.id===cancelledOwner.id);
+      assert.equal(row.donor_user_id,ownerSession.user.id);
+      assert.equal(row.project_id,project.id);
+      assert.equal(row.public_thanks,true);
+      await admin.locator('[data-view=ledger]').click();
+      await admin.locator('#ledger-refresh').click();
+      const permission=admin.locator('.donation-row').filter({hasText:cancelledOwner.id}).locator('.donation-details');
+      await permission.locator('summary').click();
+      assert.ok((await permission.textContent()).includes('Allow public thanks: Yes'));
+      assert.equal((await projectState()).raised_minor,0);
+      for(const path of [`/api/projects/${project.id}`,'/api/site','/api/stats?currency=CNY'])assert.ok(!JSON.stringify((await api(guestContext,path)).data).includes('project-permission-private@example.com'),'Public thanks consent must not expose donor email');
+      await guest.locator('#new-donation').click();
+      expired=(await createCustomDonation(guest,13,{currency:'CNY'})).donation;
+      const settings=(await api(adminContext,'/api/admin/settings')).data;
+      settings.methods.push({id:'lifecycle-stripe',type:'stripe',name:'Lifecycle signed fixture',enabled:false,config:{secret_key:'sk_test_browser_fixture',webhook_secret:'whsec_browser_fixture'}});
+      const adminSession=(await api(adminContext,'/api/auth/status')).data;
+      assert.equal((await api(adminContext,'/api/admin/settings',{method:'PUT',headers:{Origin:base,'X-CSRF-Token':adminSession.csrf_token},data:settings})).status,200);
+      // Replace only this disposable row's provider/deadline. The disabled
+      // Stripe method cannot create a checkout or contact Stripe's API.
+      updateFixtureDonation(expired.id,{method_id:'lifecycle-stripe',method_type:'stripe',method_name:'Lifecycle signed fixture',provider_ref:`cs_browser_${expired.id}`,expires_at:new Date(Date.now()-60_000).toISOString()});
+      await guest.locator('#status-refresh').click();
+      await textIncludes(guest,'#checkout-title','Expired');
+      await hidden(guest,'#cancel-payment');
+      await hidden(guest,'#donation-thanks');
+      const receipt=(await api(guestContext,`/api/donations/${expired.id}?token=${expired.status_token}`)).data;
+      assert.equal(receipt.status,'expired');
+      assert.equal(receipt.can_cancel,false);
+      assert.ok(receipt.expires_at.endsWith('Z'));
+      assert.ok(!receipt.checkout_url && !receipt.qr_url);
+      assert.equal((await projectState()).raised_minor,0);
+      assert.equal((await projectState()).count,0);
+      for(const [page,state] of [[owner,'cancelled'],[guest,'expired']])for(const width of [1440,390,320]) {
+        await page.setViewportSize({width,height:width===1440 ? 1050 : 844});
+        await noOverflow(page);
+        await page.screenshot({path:resolve(artifacts,`project-${state}-${width}.png`),fullPage:true});
+      }
+    });
+    await step('A manual offline confirmation and genuine local signed late payment raise only their project; receipt sharing never exposes a success token',async () => {
+      const genericUSD=(await api(guestContext,'/api/stats?currency=USD')).data.total_minor;
+      await confirmOffline(cancelledOwner);
+      await confirmedReceipt(owner);
+      await textIncludes(owner,'#thanks-project',project.name);
+      assert.equal((await projectState()).raised_minor,900);
+      await signedFixturePayment(guestContext,expired,'lifecycle-stripe','CNY',1300);
+      await confirmedReceipt(guest);
+      const state=await projectState();
+      assert.equal(state.raised_minor,2200);
+      assert.equal(state.count,2);
+      assert.ok(Math.abs(state.progress-2.2)<0.001);
+      assert.equal((await api(guestContext,'/api/stats?currency=USD')).data.total_minor,genericUSD,'Project payment must not contaminate a different currency');
+      assert.equal((await api(guestContext,'/api/stats?currency=CNY')).data.total_minor,2200);
+      const history=(await api(donorContext,'/api/donor/donations')).data;
+      const ownProject=history.donations.find(row => row.id===cancelledOwner.id);
+      assert.equal(ownProject.project_id,project.id);
+      assert.equal(ownProject.project_name,project.name);
+      assert.equal(ownProject.status,'confirmed');
+      assert.equal(ownProject.public_thanks,true);
+      assert.ok(!JSON.stringify(history).includes('project-permission-private@example.com'));
+      assert.ok(!history.donations.some(row => row.id===expired.id),'A guest project payment is not owned by the signed-in donor');
+      await textIncludes(guest,'#thanks-project',project.name);
+      await receiptSharingSecurity(guest,expired,'CNY','13.00');
+      for(const width of [1440,390,320]) {
+        await guest.setViewportSize({width,height:width===1440 ? 1050 : 844});
+        await noOverflow(guest);
+        await guest.screenshot({path:resolve(artifacts,`project-thanks-${width}.png`),fullPage:true});
+      }
+      await guest.locator('#thanks-back').click();
+      assert.equal(new URL(guest.url()).searchParams.get('project'),project.id);
+      assert.equal(new URL(guest.url()).searchParams.has('donation'),false);
+      await visible(guest,'#project-overview');
+      await textIncludes(guest,'#project-raised','22.00');
+      assert.ok(Math.abs(Number(await guest.locator('#project-progress-value').getAttribute('width'))-2.2)<0.001);
+      for(const width of [1440,390,320]) {
+        await guest.setViewportSize({width,height:width===1440 ? 1050 : 844});
+        await noOverflow(guest);
+        await guest.screenshot({path:resolve(artifacts,`project-page-${width}.png`),fullPage:true});
+      }
+    });
+    await step('Project goal SVG exports pin the project currency and period, link to its page, and exclude a controlled refunded fixture',async () => {
+      await admin.locator('[data-view=badges]').click();
+      await admin.locator('#badge-form [name=lang]').selectOption('en');
+      await admin.locator('#badge-form [name=project]').selectOption(project.id);
+      await admin.locator('#badge-form [name=title]').fill('');
+      await admin.locator('#badge-form').evaluate(form => form.requestSubmit());
+      assert.equal(await admin.locator('#badge-form [name=currency]').isDisabled(),true);
+      assert.equal(await admin.locator('#badge-form [name=period]').isDisabled(),true);
+      await admin.waitForFunction(() => {const img=document.querySelector('#badge-preview');return img.complete && img.naturalWidth>0 && img.naturalHeight>0;});
+      const badgeURL=new URL(await admin.locator('#badge-preview').getAttribute('src'));
+      assert.equal(badgeURL.searchParams.get('project'),project.id);
+      assert.equal(badgeURL.searchParams.has('currency'),false);
+      assert.equal(badgeURL.searchParams.has('period'),false);
+      for(const key of badgeURL.searchParams.keys())assert.ok(['project','lang','layout','theme','width','title','amount_label','count_label','animation'].includes(key));
+      const freshSVG=async () => {
+        const response=await fetch(badgeURL,{cache:'no-store'});
+        assert.equal(response.status,200);
+        assert.ok(response.headers.get('content-type')?.startsWith('image/svg+xml'));
+        const svg=await response.text();
+        assert.ok(svg.includes(project.name));
+        assert.ok(svg.includes('1,000.00'));
+        return svg;
+      };
+      const fundedSVG=await freshSVG();
+      assert.ok(fundedSVG.includes('22.00'));
+      assert.ok(fundedSVG.includes('2.2%'));
+      for(const query of ['currency=USD','period=7d'])assert.equal((await guestContext.request.get(`${base}/badge.svg?project=${project.id}&${query}`)).status(),400);
+      assert.equal((await guestContext.request.get(`${base}/badge.svg?project=missing-fixture`)).status(),404);
+      await adminContext.grantPermissions(['clipboard-read','clipboard-write'],{origin:base});
+      await admin.locator('[data-badge-copy=readme]').click();
+      assert.ok((await admin.locator('#badge-code').inputValue()).endsWith(`](${base}/?project=${project.id})`));
+      await admin.locator('[data-badge-copy=html]').click();
+      assert.ok((await admin.locator('#badge-code').inputValue()).includes(`href="${base}/?project=${project.id}"`));
+      for(const width of [1440,390,320]) {
+        await admin.setViewportSize({width,height:width===1440 ? 1050 : 844});
+        await noOverflow(admin);
+        await admin.screenshot({path:resolve(artifacts,`admin-project-badge-${width}.png`),fullPage:true});
+      }
+      // This is an aggregation/refund presentation fixture, not a fabricated
+      // production refund or a request to Stripe's refund/session endpoints.
+      updateFixtureDonation(expired.id,{status:'refunded'});
+      const refunded=await projectState();
+      assert.equal(refunded.raised_minor,900);
+      assert.equal(refunded.count,1);
+      assert.ok(Math.abs(refunded.progress-0.9)<0.001);
+      assert.equal((await api(guestContext,'/api/stats?currency=CNY')).data.total_minor,900);
+      const refundedSVG=await freshSVG();
+      assert.ok(refundedSVG.includes('9.00'));
+      assert.ok(refundedSVG.includes('0.9%'));
+      await guest.goto(`${base}/?project=${project.id}&donation=${expired.id}`);
+      await textIncludes(guest,'#checkout-title','Refunded');
+      await hidden(guest,'#donation-thanks');
+    });
+    await step('Project editing retains the slug; archiving hides its public page and blocks new project checkout',async () => {
+      await admin.locator('[data-view=projects]').click();
+      await admin.locator(`[data-edit-project="${project.id}"]`).click();
+      await admin.locator('[name=project-name]').fill('Browser funding edited');
+      const [updated]=await Promise.all([
+        admin.waitForResponse(response => new URL(response.url()).pathname===`/api/admin/projects/${project.id}` && response.request().method()==='PUT'),
+        admin.locator('#project-form button[type=submit]').click()
+      ]);
+      assert.equal(updated.status(),200,await updated.text());
+      assert.equal((await updated.json()).id,project.id);
+      admin.once('dialog',dialog => dialog.accept());
+      const [archived]=await Promise.all([
+        admin.waitForResponse(response => new URL(response.url()).pathname===`/api/admin/projects/${project.id}` && response.request().method()==='PUT'),
+        admin.locator(`[data-project-active="${project.id}"]`).click()
+      ]);
+      assert.equal(archived.status(),200,await archived.text());
+      assert.equal((await api(guestContext,`/api/projects/${project.id}`)).status,404);
+      const failed=await api(guestContext,'/api/donations',{method:'POST',headers:{Origin:base},data:{project_id:project.id,currency:'CNY',amount_minor:100,method_id:methodID,accepted_terms:true}});
+      assert.equal(failed.status,400);
+      await guest.goto(`${base}/?project=${project.id}`);
+      await visible(guest,'#project-error');
+      assert.equal(await guest.locator('#donate-button').isDisabled(),true);
+      await hidden(guest,'#donation-thanks');
+    });
+  } finally {await guestContext.close();await owner.close();}
+}
+
+async function announcementScenario(admin,adminContext) {
+  const context=await browser.newContext({locale:'en-US',viewport:{width:1440,height:1050}});
+  const page=await context.newPage();watch(page);
+  try {
+    await step('An administrator announcement displays safe literal text and a link; an unsafe URL is rejected and empty configuration stays hidden',async () => {
+      await admin.locator('[data-view=site]').click();
+      await admin.locator('[name=site-announcement]').fill('Funding <fixture> & progress');
+      await admin.locator('[name=site-announcement_url]').fill('https://example.com/funding');
+      await save(admin,'#site-form');
+      await page.goto(base);
+      await visible(page,'#site-announcement');
+      assert.equal(await page.locator('#announcement-text').textContent(),'Funding <fixture> & progress');
+      assert.equal(await page.locator('#announcement-text *').count(),0,'Configured announcement text must not become HTML');
+      await hidden(page,'#announcement-text');
+      await visible(page,'#announcement-link');
+      assert.equal(await page.locator('#announcement-link').textContent(),'Funding <fixture> & progress');
+      assert.equal(await page.locator('#announcement-link').getAttribute('href'),'https://example.com/funding');
+      for(const rel of ['noopener','noreferrer'])assert.ok((await page.locator('#announcement-link').getAttribute('rel')).includes(rel));
+      for(const width of [1440,390,320]) {
+        await page.setViewportSize({width,height:width===1440 ? 1050 : 844});
+        await noOverflow(page);
+        await page.screenshot({path:resolve(artifacts,`announcement-${width}.png`),fullPage:true});
+      }
+      const settings=(await api(adminContext,'/api/admin/settings')).data;
+      settings.site.announcement_url='javascript:alert(1)';
+      const session=(await api(adminContext,'/api/auth/status')).data;
+      assert.equal((await api(adminContext,'/api/admin/settings',{method:'PUT',headers:{Origin:base,'X-CSRF-Token':session.csrf_token},data:settings})).status,400);
+      assert.equal((await api(adminContext,'/api/admin/settings')).data.site.announcement_url,'https://example.com/funding');
+      await admin.locator('[name=site-announcement]').fill('');
+      await admin.locator('[name=site-announcement_url]').fill('');
+      await save(admin,'#site-form');
+      await page.reload();
+      await visible(page,'#donation-form');
+      await hidden(page,'#site-announcement');
     });
   } finally {await context.close();}
 }
@@ -405,6 +774,7 @@ try {
   const admin = await adminContext.newPage();
   watch(admin);
   const authenticator = await addAuthenticator(admin);
+  let activeAdminDevice=authenticator;
 
   await step('Minimal Donate page: no default copy, animated ASCII coffee, reduced motion, policies, locales, hidden administrator entrance', async () => {
     let donationPosts=0;
@@ -414,6 +784,7 @@ try {
     await visible(admin, '#presets button');
     assert.equal(await admin.locator('#currency').inputValue(), 'USD');
     assert.equal(await admin.locator('#donate-button').isDisabled(), true);
+    assert.equal(await admin.locator('#donor-public-thanks').isChecked(),false);
     assert.equal(await admin.title(), 'Donate');
     assert.equal(await admin.locator('#site-name').textContent(), 'Donate');
     assert.equal(await admin.locator('#scene, #ascii, .token-cloud, #motion-toggle, #token-response, #support-total, a[href="/api/stats"]').count(), 0);
@@ -613,12 +984,14 @@ try {
     assert.equal(site.recent[0].message,'ASCII keeps the project alive.');
     assert.ok(!JSON.stringify(site).includes('private-fixture@example.com'));
     await publicPage.reload();
-    await textIncludes(publicPage,'#checkout-title','confirmed');
+    await visible(publicPage,'#donation-thanks');
   });
 
   await step('Manual offline record: exact JPY units, private donor excluded from public list, statistics API access control', async () => {
     await admin.locator('.manual-entry summary').click();
     await admin.locator('[name=manual-currency]').selectOption('JPY');
+    assert.equal(await admin.locator('[name=manual-public_thanks]').isChecked(),false);
+    await admin.locator('[name=manual-public_thanks]').check();
     await admin.locator('[name=manual-amount]').fill('1200');
     await admin.locator('[name=manual-name]').fill('Private fixture supporter');
     await admin.locator('[name=manual-email]').fill('offline-private@example.com');
@@ -629,6 +1002,8 @@ try {
       admin.locator('#manual-form button[type=submit]').click()
     ]);
     assert.equal(response.status(),201,await response.text());
+    assert.equal(response.request().postDataJSON().public_thanks,true);
+    assert.equal((await response.json()).public_thanks,true);
     const jpy = (await api(publicContext,'/api/stats?currency=JPY')).data;
     assert.equal(jpy.total_minor,1200);
     assert.equal(jpy.count,1);
@@ -799,6 +1174,7 @@ try {
     await hidden(admin,'#passkey-login');
     await authenticator.cdp.send('WebAuthn.removeVirtualAuthenticator',{authenticatorId:authenticator.authenticatorId});
     const newAuthenticator = await addAuthenticator(admin);
+    activeAdminDevice=newAuthenticator;
     await admin.locator('#bootstrap-password').fill(replacement);
     await admin.locator('#password-form button[type=submit]').click();
     await visible(admin,'#passkey-register');
@@ -816,10 +1192,10 @@ try {
   const donorPage = await donorContext.newPage();
   watch(donorPage);
   let donorDevice = await addAuthenticator(donorPage);
-  let donorID, accountDonationID, guestAfterLogoutID;
+  let donorID, accountDonationID, guestAfterLogoutID, administratorDonorID;
 
   await step('Optional donor account: modal focus and Escape, genuine Passkey signup, independent administrator permissions', async () => {
-    assert.equal((await donorState(adminContext)).authenticated,false,'An admin session must not grant a donor account');
+    assert.equal((await donorState(adminContext)).authenticated,false,'An admin cookie alone must not sign a donor in');
     assert.equal((await api(adminContext,'/api/donor/donations')).status,401);
     await donorPage.goto(base);
     await visible(donorPage,'input[name=method_id]');
@@ -878,13 +1254,24 @@ try {
     await closeDonor(donorPage);
   });
 
-  await step('Real Passkey signatures cannot cross donor and administrator authentication', async () => {
+  await step('Donor Passkeys cannot authenticate administrators; administrator keys can authenticate only a separate public session', async () => {
     assert.deepEqual(await crossRoleAssertion(donorPage,'/api/auth'),{stage:'finish',status:401});
     assert.equal((await donorState(donorContext)).user.id,donorID);
     assert.equal((await api(donorContext,'/api/auth/status')).data.authenticated,false);
-    assert.deepEqual(await crossRoleAssertion(admin,'/api/donor'),{stage:'finish',status:401});
+    const adminCookie=(await adminContext.cookies(base)).find(cookie => cookie.name==='donate_session').value;
+    assert.deepEqual(await crossRoleAssertion(admin,'/api/donor'),{stage:'finish',status:200});
     assert.equal((await api(adminContext,'/api/auth/status')).data.authenticated,true);
+    const publicSession=await donorState(adminContext);
+    assert.equal(publicSession.authenticated,true);
+    administratorDonorID=publicSession.user.id;
+    assert.notEqual(administratorDonorID,donorID);
+    assert.equal(publicSession.donor_id,administratorDonorID);
+    assert.equal(publicSession.passkey_count,1);
+    assert.equal((await adminContext.cookies(base)).find(cookie => cookie.name==='donate_session').value,adminCookie,'Public sign-in must preserve the existing administrator cookie');
+    const logout=await api(adminContext,'/api/donor/logout',{method:'POST',headers:{Origin:base,'X-CSRF-Token':publicSession.csrf_token},data:{}});
+    assert.equal(logout.status,200);
     assert.equal((await donorState(adminContext)).authenticated,false);
+    assert.equal((await api(adminContext,'/api/auth/status')).data.authenticated,true);
   });
 
   await step('Signed-in donation uses server-side ownership and donor CSRF; private account history updates after confirmation', async () => {
@@ -934,7 +1321,7 @@ try {
   });
 
   await step('Signing out restores guest donation; signing back in does not claim the guest record', async () => {
-    await donorPage.locator('#new-donation').click();
+    await donorPage.locator('#thanks-back').click();
     await openDonor(donorPage);
     await donorPage.locator('#donor-logout').click();
     await visible(donorPage,'#donor-register');
@@ -978,6 +1365,7 @@ try {
     lastPage = donorPage;
   });
 
+  const verifySeparateCookies=async () => {
   await step('Admin and donor cookies coexist without sharing CSRF or logout authority', async () => {
     const mixed = await browser.newContext();
     await mixed.addCookies([...(await adminContext.cookies(base)),...(await donorContext.cookies(base))]);
@@ -1007,6 +1395,105 @@ try {
     await closeDonor(donorPage);
     await mixed.close();
   });
+  };
+
+  const administratorPublicContext=await browser.newContext({locale:'en-US',viewport:{width:1440,height:1050}});
+  const administratorPublicPage=await administratorPublicContext.newPage();
+  watch(administratorPublicPage);
+  let administratorPublicDevice=await addAuthenticator(administratorPublicPage);
+  let administratorDonationID;
+  await step('An administrator Passkey signs into the homepage without an admin cookie and retains one ordinary donor identity',async () => {
+    // Export/import only our disposable virtual fixture key. No browser profile
+    // or real security key is read; this models using the same key on the homepage.
+    const fixtureKeys=(await activeAdminDevice.cdp.send('WebAuthn.getCredentials',{authenticatorId:activeAdminDevice.authenticatorId})).credentials;
+    assert.equal(fixtureKeys.length,1);
+    await activeAdminDevice.cdp.send('WebAuthn.removeVirtualAuthenticator',{authenticatorId:activeAdminDevice.authenticatorId});
+    await administratorPublicDevice.cdp.send('WebAuthn.addCredential',{authenticatorId:administratorPublicDevice.authenticatorId,credential:fixtureKeys[0]});
+    assert.deepEqual(await administratorPublicContext.cookies(base),[]);
+    await administratorPublicPage.goto(base);
+    await visible(administratorPublicPage,'input[name=method_id]');
+    await openDonor(administratorPublicPage);
+    await administratorPublicPage.locator('#donor-login').click();
+    await visible(administratorPublicPage,'#donor-logout');
+    const session=await donorState(administratorPublicContext);
+    assert.equal(session.authenticated,true);
+    assert.equal(session.user.id,administratorDonorID);
+    assert.equal(session.passkey_count,1);
+    assert.equal((await api(administratorPublicContext,'/api/auth/status')).data.authenticated,false);
+    assert.equal((await api(administratorPublicContext,'/api/admin/settings')).status,401);
+    assert.equal((await api(administratorPublicContext,'/api/private/stats')).status,401);
+    assert.ok(!(await administratorPublicContext.cookies(base)).some(cookie => cookie.name==='donate_session'),'Public sign-in must issue no administrator cookie');
+    assert.equal((await api(administratorPublicContext,'/api/donor/donations')).data.total,0);
+    await administratorPublicPage.locator('#donor-logout').click();
+    await visible(administratorPublicPage,'#donor-login');
+    assert.equal((await donorState(administratorPublicContext)).authenticated,false);
+    await administratorPublicPage.locator('#donor-login').click();
+    await visible(administratorPublicPage,'#donor-logout');
+    assert.equal((await donorState(administratorPublicContext)).user.id,administratorDonorID,'Reusing the administrator key must not create another public identity');
+    await noOverflow(administratorPublicPage);
+    await administratorPublicPage.screenshot({path:resolve(artifacts,'administrator-public-account-desktop.png'),fullPage:true});
+    await closeDonor(administratorPublicPage);
+  });
+  await step('The administrator public identity owns only its donation and history; its ordinary donor session cannot manage records',async () => {
+    const created=await createCustomDonation(administratorPublicPage,7,{name:'Administrator public fixture',email:'administrator-public-private@example.com'});
+    administratorDonationID=created.donation.id;
+    assert.ok(!Object.hasOwn(created.request.postDataJSON(),'donor_user_id'));
+    assert.equal(created.request.headers()['x-csrf-token'],(await donorState(administratorPublicContext)).csrf_token);
+    assert.equal((await api(administratorPublicContext,`/api/admin/donations/${administratorDonationID}/confirm`,{method:'POST',headers:{Origin:base,'X-CSRF-Token':(await donorState(administratorPublicContext)).csrf_token},data:{reference:'unauthorized-fixture'}})).status,401);
+    const ledger=(await api(adminContext,'/api/admin/donations')).data.donations;
+    assert.equal(ledger.find(record => record.id===administratorDonationID).donor_user_id,administratorDonorID);
+    assert.equal(ledger.find(record => record.id===accountDonationID).donor_user_id,donorID);
+    assert.equal(ledger.find(record => record.id===guestAfterLogoutID).donor_user_id || '','');
+    let history=(await api(administratorPublicContext,'/api/donor/donations')).data;
+    assert.equal(history.total,1);
+    assert.equal(history.donations[0].id,administratorDonationID);
+    assert.equal(history.donations[0].status,'pending');
+    assert.equal((await api(donorContext,'/api/donor/donations')).data.total,1,'The regular donor must not receive the administrator donation');
+    const adminState=(await api(adminContext,'/api/auth/status')).data;
+    const confirmed=await api(adminContext,`/api/admin/donations/${administratorDonationID}/confirm`,{method:'POST',headers:{Origin:base,'X-CSRF-Token':adminState.csrf_token},data:{reference:'administrator-public-confirmed-fixture',paid_at:new Date().toISOString()}});
+    assert.equal(confirmed.status,200);
+    await confirmedReceipt(administratorPublicPage);
+    await openDonor(administratorPublicPage);
+    await textIncludes(administratorPublicPage,'#donor-history-list','Confirmed');
+    history=(await api(administratorPublicContext,'/api/donor/donations')).data;
+    assert.equal(history.total,1);
+    assert.equal(history.donations[0].id,administratorDonationID);
+    assert.equal(history.donations[0].status,'confirmed');
+    assert.ok(!JSON.stringify((await api(administratorPublicContext,'/api/site')).data).includes('administrator-public-private@example.com'));
+    for(const width of [1440,390,320]) {
+      await administratorPublicPage.setViewportSize({width,height:width===1440 ? 1050 : 844});
+      await noOverflow(administratorPublicPage);
+      await administratorPublicPage.screenshot({path:resolve(artifacts,`administrator-public-history-${width}.png`),fullPage:true});
+    }
+    await closeDonor(administratorPublicPage);
+  });
+  await step('A public backup key for the administrator-linked donor preserves the identity and history without gaining admin rights',async () => {
+    await openDonor(administratorPublicPage);
+    await administratorPublicDevice.cdp.send('WebAuthn.removeVirtualAuthenticator',{authenticatorId:administratorPublicDevice.authenticatorId});
+    administratorPublicDevice=await addAuthenticator(administratorPublicPage);
+    await administratorPublicPage.locator('#donor-add-passkey').click();
+    await administratorPublicPage.waitForFunction(() => !document.querySelector('#donor-add-passkey').disabled);
+    const backedUp=await donorState(administratorPublicContext);
+    assert.equal(backedUp.user.id,administratorDonorID);
+    assert.equal(backedUp.passkey_count,2);
+    await administratorPublicPage.locator('#donor-logout').click();
+    await visible(administratorPublicPage,'#donor-login');
+    await administratorPublicPage.locator('#donor-login').click();
+    await visible(administratorPublicPage,'#donor-logout');
+    assert.equal((await donorState(administratorPublicContext)).user.id,administratorDonorID);
+    assert.equal((await api(administratorPublicContext,'/api/donor/donations')).data.donations[0].id,administratorDonationID);
+    assert.deepEqual(await crossRoleAssertion(administratorPublicPage,'/api/auth'),{stage:'finish',status:401},'A native donor backup key must not inherit administrator-key authority');
+    assert.equal((await api(administratorPublicContext,'/api/auth/status')).data.authenticated,false);
+    assert.equal((await api(administratorPublicContext,'/api/admin/settings')).status,401);
+    assert.equal((await donorState(administratorPublicContext)).user.id,administratorDonorID);
+    await closeDonor(administratorPublicPage);
+    await administratorPublicContext.close();
+  });
+  await announcementScenario(admin,adminContext);
+  await projectLifecycleScenarios(admin,adminContext,donorContext,methodID);
+  // This check revokes the copied administrator session on the server, so run
+  // it after the administrator confirms the new public donation.
+  await verifySeparateCookies();
 
   }
   await donorLifecycleScenarios();

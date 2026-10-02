@@ -57,7 +57,8 @@
         <div class="sidebar-body">
         <nav id="admin-nav" aria-label="管理后台 / Administration">
           <div class="nav-group"><button type="button" data-view="ledger" aria-current="page"><span data-i18n="ledger">捐款记录</span></button></div>
-          <div class="nav-group"><button type="button" data-view="site"><span data-i18n="siteSettings">网站与文字</span></button>
+          <div class="nav-group"><button type="button" data-view="projects"><span data-i18n="projects">项目</span></button>
+          <button type="button" data-view="site"><span data-i18n="siteSettings">网站与文字</span></button>
           <button type="button" data-view="payments"><span data-i18n="paymentMethods">支付方式</span></button>
           <button type="button" data-view="catalog"><span data-i18n="waffoProducts">Waffo 产品</span></button>
           <button type="button" data-view="notifications"><span data-i18n="notifications">通知</span></button>
@@ -70,9 +71,15 @@
         <section id="view-ledger" class="view" aria-labelledby="ledger-title">
           <div class="section-head"><div><h1 id="ledger-title" data-i18n="ledger">捐款记录</h1></div><a id="export-link" href="/api/admin/export" class="button quiet"><span data-i18n="exportCSV">导出 CSV</span></a></div>
           <details class="manual-entry"><summary data-i18n="manualEntry">手动录入一笔捐款</summary><form id="manual-form" class="form-grid"></form></details>
-          <div class="toolbar"><label for="ledger-status" data-i18n="filterStatus">状态</label><select id="ledger-status"><option value="" data-i18n="all">全部</option><option value="confirmed" data-i18n="paid">已确认</option><option value="pending" data-i18n="pending">待确认</option><option value="refunded" data-i18n="refunded">已退款</option></select><button type="button" id="ledger-refresh" class="quiet" data-i18n="refresh">刷新</button><span id="ledger-count" class="muted"></span></div>
+          <div class="toolbar"><label for="ledger-status" data-i18n="filterStatus">状态</label><select id="ledger-status"><option value="" data-i18n="all">全部</option><option value="confirmed" data-i18n="paid">已确认</option><option value="pending" data-i18n="pending">待确认</option><option value="cancelled" data-i18n="donationCancelled">已取消</option><option value="expired" data-i18n="donationExpired">已过期</option><option value="refunded" data-i18n="refunded">已退款</option></select><button type="button" id="ledger-refresh" class="quiet" data-i18n="refresh">刷新</button><span id="ledger-count" class="muted"></span></div>
           <div id="ledger-list" class="ledger-list" aria-live="polite"></div>
           <div class="pagination"><button type="button" id="ledger-prev" class="quiet" data-i18n="previous">上一页</button><span id="ledger-page"></span><button type="button" id="ledger-next" class="quiet" data-i18n="next">下一页</button></div>
+        </section>
+        <section id="view-projects" class="view" hidden aria-labelledby="projects-title">
+          <div class="section-head"><h1 id="projects-title" data-i18n="projects">项目</h1><div class="actions"><button type="button" id="project-new" class="quiet" data-i18n="newProject">新建项目</button><button type="button" id="projects-refresh" class="quiet" data-i18n="refresh">刷新</button></div></div>
+          <form id="project-form" class="form-grid"></form>
+          <p id="projects-status" class="muted" role="status" hidden></p>
+          <div id="projects-list" class="products-list"></div>
         </section>
         <section id="view-site" class="view" hidden aria-labelledby="site-title"><div class="section-head"><div><h1 id="site-title" data-i18n="siteSettings">网站与文字</h1></div></div><form id="site-form"></form></section>
         <section id="view-payments" class="view" hidden aria-labelledby="payments-title"><div class="section-head"><div><h1 id="payments-title" data-i18n="paymentMethods">支付方式</h1></div></div><form id="methods-form"></form><div class="add-method"><label for="new-method-type" data-i18n="addMethod">添加支付方式</label><select id="new-method-type"><option value="waffo">Waffo Pancake</option><option value="stripe">Stripe</option><option value="paypal">PayPal</option><option value="custom" data-i18n="customMethod">自定义二维码 / 链接</option></select><button type="button" id="add-method" class="quiet" data-i18n="add">添加</button></div></section>

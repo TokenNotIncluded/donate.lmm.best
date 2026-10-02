@@ -47,13 +47,41 @@ ui.en.sessionChanged='Your account changed. Please retry.';
 ui['zh-CN'].randomAmount='随机金额';
 ui['zh-TW'].randomAmount='隨機金額';
 ui.en.randomAmount='Random amount';
+ui['zh-CN'].historyExpired='已过期';
+ui['zh-TW'].historyExpired='已過期';
+ui.en.historyExpired='Expired';
+ui['zh-CN'].verifyingTitle='正在核实';
+ui['zh-TW'].verifyingTitle='正在核實';
+ui.en.verifyingTitle='Verifying payment';
+Object.assign(ui['zh-CN'],{projects:'筹款项目',raised:'已筹',goal:'目标',projectUnavailable:'项目不存在或已停止筹款。',projectLoadFailed:'项目加载失败，请刷新重试。'});
+Object.assign(ui['zh-TW'],{projects:'募款專案',raised:'已募',goal:'目標',projectUnavailable:'專案不存在或已停止募款。',projectLoadFailed:'專案載入失敗，請重新整理。'});
+Object.assign(ui.en,{projects:'Projects',raised:'Raised',goal:'Goal',projectUnavailable:'Project not found or closed.',projectLoadFailed:'Could not load projects. Refresh to retry.'});
+Object.assign(ui['zh-CN'],{publicThanks:'允许公开致谢',publicThanksNote:'昵称可用于作者的致谢网页或小游戏',announcementLink:'查看'});
+Object.assign(ui['zh-TW'],{publicThanks:'允許公開致謝',publicThanksNote:'暱稱可用於作者的致謝網頁或小遊戲',announcementLink:'查看'});
+Object.assign(ui.en,{publicThanks:'Allow public thanks',publicThanksNote:"Nickname may appear on the author's thank-you pages or mini games.",announcementLink:'Open'});
+defaultPolicies['zh-CN'].privacy+='\n\n勾选公开致谢后，昵称（未填写则匿名）可用于作者的致谢网页或小游戏，邮箱不会公开。';
+defaultPolicies['zh-TW'].privacy+='\n\n勾選公開致謝後，暱稱（未填寫則匿名）可用於作者的致謝網頁或小遊戲，信箱不會公開。';
+defaultPolicies.en.privacy+="\n\nIf you allow public thanks, your nickname (or Anonymous) may appear on the author's thank-you pages or mini games; your email stays private.";
+Object.assign(ui['zh-CN'],{thankYou:'谢谢你的捐赠。',backToDonation:'返回捐赠页',cancelPayment:'取消支付',cancelling:'正在取消…',expiredTitle:'已过期',expiredCopy:'付款若已提交，请勿重复支付。',cancelledCopy:'付款若已提交，请勿重复支付。'});
+Object.assign(ui['zh-TW'],{thankYou:'謝謝你的捐贈。',backToDonation:'返回捐贈頁',cancelPayment:'取消支付',cancelling:'正在取消…',expiredTitle:'已過期',expiredCopy:'若已提交付款，請勿重複支付。',cancelledCopy:'若已提交付款，請勿重複支付。'});
+Object.assign(ui.en,{thankYou:'Thank you for your donation.',backToDonation:'Back to Donate',cancelPayment:'Cancel payment',cancelling:'Cancelling…',expiredTitle:'Expired',expiredCopy:'If you already submitted payment, do not pay again.',cancelledCopy:'If you already submitted payment, do not pay again.'});
 const waffoRangesMinor={USD:[100,1000000],EUR:[100,940000],GBP:[100,815000],HKD:[800,7760000],JPY:[100,1600000],CNY:[100,100000]};
 let site = null;
+let projectId = new URL(location.href).searchParams.get('project') || '';
+let activeProject = null;
+let projects = [];
+let projectError = '';
 let locale = 'zh-CN';
 let currency = 'CNY';
 let submissionBusy = false;
 let activeCheckout = null;
+let verifiedCheckout = null;
+let checkoutSequence = 0;
+let cancellationBusy = false;
+const receiptStoragePrefix = 'donate-receipt:';
+const returnedReceipt = receiptFromLocation();
 let pollTimer;
+let expiryTimer;
 let pollCount = 0;
 let donationFingerprint = '', donationIdempotency = '';
 const t = key => ui[locale][key] ?? ui.en[key] ?? key;
@@ -92,6 +120,55 @@ function setMultiline(element, text) { element.textContent = text; element.style
 function localText(key, fallback) {
   return site?.translations?.[locale]?.[key] || site?.[key] || fallback;
 }
+function renderAnnouncement() {
+  const text=localText('announcement','');
+  let link=null;
+  try {const url=new URL(site?.announcement_url);if(url.protocol==='https:' && !url.username && !url.password)link=url.href;}catch{}
+  $('#site-announcement').hidden=!text.trim() || !!confirmedReceipt();
+  $('#announcement-text').textContent=text;$('#announcement-text').hidden=!!link;
+  $('#announcement-link').textContent=text;$('#announcement-link').hidden=!link;
+  if(link)$('#announcement-link').href=link;else $('#announcement-link').removeAttribute('href');
+}
+function validProject(project) {
+  return !!project && /^[a-z0-9-]{1,64}$/.test(project.id) && typeof project.name==='string' && !!project.name.trim() && project.active===true && ['USD','EUR','GBP','CNY','TWD','HKD','JPY'].includes(project.currency) && Number.isSafeInteger(project.target_minor) && project.target_minor>0 && Number.isSafeInteger(project.raised_minor) && project.raised_minor>=0 && Number.isFinite(project.progress);
+}
+function projectBlocked() {return !!projectId && activeProject?.id!==projectId;}
+function renderProjects() {
+  const thanked=!!confirmedReceipt();
+  $('#project-overview').hidden=!activeProject || thanked;
+  $('#project-error').hidden=!projectError || thanked;
+  $('#project-error-message').textContent=projectError ? t(projectError) : '';
+  if(activeProject){
+    $('#project-name').textContent=activeProject.name;
+    $('#project-raised').textContent=money(activeProject.raised_minor,activeProject.currency);
+    $('#project-goal').textContent=money(activeProject.target_minor,activeProject.currency);
+    $('#project-progress-value').setAttribute('width',String(Math.min(100,Math.max(0,activeProject.progress))));
+    $('#project-progress').setAttribute('aria-label',`${activeProject.name} · ${t('raised')} ${money(activeProject.raised_minor,activeProject.currency)} · ${t('goal')} ${money(activeProject.target_minor,activeProject.currency)}`);
+  }
+  const nav=$('#project-links');nav.replaceChildren();nav.hidden=!!projectId || thanked || !projects.length;nav.setAttribute('aria-label',t('projects'));
+  projects.forEach(project=>{const link=document.createElement('a');link.className='text-link';link.href=`/?project=${encodeURIComponent(project.id)}`;const label=document.createElement('span');label.textContent=project.name;link.append(label,createIcon('arrow-right'));nav.append(link);});
+}
+async function readProjects() {
+  const result=await request('/api/projects',{cache:'no-store'});
+  if(!Array.isArray(result.projects))throw new Error(t('projectLoadFailed'));
+  return result.projects.filter(validProject);
+}
+async function readProject(id) {
+  const result=await request(`/api/projects/${encodeURIComponent(id)}`,{cache:'no-store'});
+  if(!validProject(result) || result.id!==id)throw new Error(t('projectLoadFailed'));
+  return result;
+}
+async function restoreReceiptProject(status,id,sequence) {
+  if(typeof status.project_id!=='string')return;
+  const nextId=status.project_id;
+  if(nextId!==projectId){projectId=nextId;activeProject=null;projectError='';donationFingerprint='';donationIdempotency='';}
+  const url=new URL(location.href);if(projectId)url.searchParams.set('project',projectId);else url.searchParams.delete('project');history.replaceState(null,'',url);
+  let project=projectId ? projects.find(item=>item.id===projectId) : null;
+  let error='';
+  if(projectId && !project){try {project=await readProject(projectId);}catch(failure){error=failure.status===404?'projectUnavailable':'projectLoadFailed';}}
+  if(activeCheckout?.id!==id || sequence!==checkoutSequence)return;
+  activeProject=project || null;projectError=error;renderProjects();setCurrency(activeProject?.currency || currency);
+}
 function applyLanguage() {
   document.documentElement.lang = locale;
   $$('[data-i18n]').forEach(element => setMultiline(element,t(element.dataset.i18n)));
@@ -118,11 +195,15 @@ function applyLanguage() {
   if(activeCheckout) renderCheckout();
   if($('#policy-dialog').open) showPolicy($('#policy-dialog').dataset.policy);
   $('#close-donor').setAttribute('aria-label',t('close'));
+  renderAnnouncement();
+  renderProjects();
   renderDonorAccount();
 }
 function setCurrency(value, keepAmount = true) {
-  const available = site?.currencies?.length ? site.currencies : ['USD','CNY','TWD','EUR','GBP','HKD','JPY'];
-  currency = available.includes(value) ? value : available.includes(site?.currency) ? site.currency : available[0];
+  const available = activeProject ? [activeProject.currency] : site?.currencies?.length ? site.currencies : ['USD','CNY','TWD','EUR','GBP','HKD','JPY'];
+  currency = activeProject?.currency || (available.includes(value) ? value : available.includes(site?.currency) ? site.currency : available[0]);
+  $('#currency').replaceChildren(...available.map(unit=>{const option=document.createElement('option');option.value=unit;option.textContent=unit;return option;}));
+  $('#currency').disabled=!!projectId;
   $('#currency').value=currency;
   $('#currency-symbol').textContent=currencySymbol(currency);
   if(!keepAmount || !$('#amount').value) $('#amount').value=String(site?.presets?.[1] || site?.presets?.[0] || 15);
@@ -179,7 +260,7 @@ function renderMethods() {
   });
   if(!$('input[name=method_id]:checked')) {const first=$('input[name=method_id]:not(:disabled)');if(first)first.checked=true;}
   renderRandomAmount();
-  $('#donate-button').disabled=submissionBusy || donorBusy || !$('input[name=method_id]:not(:disabled)');
+  $('#donate-button').disabled=submissionBusy || donorBusy || projectBlocked() || !$('input[name=method_id]:not(:disabled)');
 }
 function parseAmount() {
   const value=$('#amount').value.trim();
@@ -195,7 +276,7 @@ function parseAmount() {
 function renderRecent() {
   const container=$('#recent-support');container.replaceChildren();
   const recent=Array.isArray(site?.recent) ? site.recent : [];
-  $('#support-section').hidden=!recent.length;
+  $('#support-section').hidden=!!confirmedReceipt() || !recent.length;
   if(!recent.length)return;
   recent.slice(0,8).forEach(donation=>{
     const article=document.createElement('article');article.className='support-entry';const header=document.createElement('header');const name=document.createElement('strong');name.textContent=donation.name || t('anonymous');const amount=document.createElement('span');amount.className='support-money';amount.textContent=money(donation.amount_minor,donation.currency);header.append(name,amount);article.append(header);
@@ -209,48 +290,117 @@ function showPolicy(kind) {
   const dialog=$('#policy-dialog');dialog.dataset.policy=kind;$('#policy-title').textContent=t(kind);$('#policy-content').textContent=localText(kind,defaultPolicies[locale][kind]);if(!dialog.open)dialog.showModal();
 }
 function safeCheckoutURL(value) {if(typeof value!=='string' || !value.trim())return null;try {const url=new URL(value,location.origin);return ['https:','http:'].includes(url.protocol) ? url.href : null;}catch{return null;}}
+function rememberReceipt(id, token) {try {sessionStorage.setItem(`${receiptStoragePrefix}${id}`,token);}catch{}}
+function receiptFromLocation() {
+  const url=new URL(location.href);
+  const id=url.searchParams.get('donation');
+  let token=url.searchParams.get('status_token');
+  if(id && token)rememberReceipt(id,token);
+  else if(id){try {token=sessionStorage.getItem(`${receiptStoragePrefix}${id}`);}catch{}}
+  if(url.searchParams.has('status_token')){url.searchParams.delete('status_token');history.replaceState(null,'',url);}
+  return id && token ? {id,status_token:token,status:'pending'} : null;
+}
+function confirmedReceipt() {
+  const receipt=verifiedCheckout;
+  return receipt?.id===activeCheckout?.id && ['paid','confirmed','completed','succeeded'].includes(receipt?.status) && Number.isSafeInteger(receipt?.amount_minor) && receipt.amount_minor>0 && ['USD','EUR','GBP','CNY','TWD','HKD','JPY'].includes(receipt?.currency) ? receipt : null;
+}
 function showCheckout(checkout) {
-  activeCheckout=checkout;pollCount=0;$('#donation-form').hidden=true;$('#checkout-status').hidden=false;$('#checkout-status').focus();
-  const url=new URL(location.href);url.searchParams.set('donation',checkout.id);url.searchParams.set('status_token',checkout.status_token);history.replaceState(null,'',url);
+  clearTimeout(pollTimer);clearTimeout(expiryTimer);
+  activeCheckout=checkout;verifiedCheckout=null;checkoutSequence++;cancellationBusy=false;pollCount=0;$('#donation-form').hidden=true;$('#donation-thanks').hidden=true;$('#checkout-status').hidden=false;$('#checkout-status').focus();
+  rememberReceipt(checkout.id,checkout.status_token);
+  const url=new URL(location.href);url.searchParams.set('donation',checkout.id);url.searchParams.delete('status_token');history.replaceState(null,'',url);
   renderCheckout();schedulePoll(1200);
 }
 function renderCheckout() {
   if(!activeCheckout)return;
-  const state=activeCheckout.status;
-  const finalState=['paid','confirmed','completed','succeeded','refunded','failed','cancelled','canceled'].includes(state);
-  const key=['paid','confirmed','completed','succeeded'].includes(state)?'paid':state==='refunded'?'refunded':state==='failed'?'failed':['cancelled','canceled'].includes(state)?'cancelled':'pending';
-  setIcon($('#checkout-icon'),{pending:'clock',paid:'check',refunded:'refund',failed:'alert',cancelled:'close'}[key]);
+  const receipt=confirmedReceipt();
+  const thanks=$('#donation-thanks');const enteringThanks=thanks.hidden && !!receipt;
+  thanks.hidden=!receipt;$('#checkout-status').hidden=!!receipt;
+  $('#custom-copy').hidden=!!receipt || ($('#site-tagline').hidden && $('#site-description').hidden);
+  $('#support-section').hidden=!!receipt || !$('#recent-support').children.length;
+  if(receipt){$('#thanks-amount').textContent=money(receipt.amount_minor,receipt.currency);$('#thanks-currency').textContent=receipt.currency;if(enteringThanks && !$('dialog[open]'))thanks.focus();}
+  else {$('#thanks-amount').textContent='';$('#thanks-currency').textContent='';}
+  const receiptProject=receipt?.project_id && typeof receipt.project_name==='string' ? receipt.project_name : '';
+  $('#thanks-project').textContent=receiptProject;$('#thanks-project').hidden=!receiptProject;
+  renderAnnouncement();
+  renderProjects();
+  const needsVerification=['paid','confirmed','completed','succeeded'].includes(activeCheckout.status) && !receipt;
+  const state=needsVerification ? 'pending' : activeCheckout.status;
+  const finalState=['paid','confirmed','completed','succeeded','refunded','failed','cancelled','canceled','expired'].includes(state);
+  const key=['paid','confirmed','completed','succeeded'].includes(state)?'paid':state==='refunded'?'refunded':state==='failed'?'failed':state==='expired'?'expired':['cancelled','canceled'].includes(state)?'cancelled':'pending';
+  setIcon($('#checkout-icon'),{pending:'clock',paid:'check',refunded:'refund',failed:'alert',cancelled:'close',expired:'clock'}[key]);
   $('#checkout-status').dataset.state=key;
-  $('#checkout-title').textContent=t(`${key}Title`);
-  const copy=t(key==='pending' && activeCheckout.custom ? 'customPendingCopy' : `${key}Copy`);
+  $('#checkout-title').textContent=t(needsVerification?'verifyingTitle':`${key}Title`);
+  const copy=needsVerification ? '' : t(key==='pending' && activeCheckout.custom ? 'customPendingCopy' : `${key}Copy`);
   $('#checkout-copy').textContent=copy;$('#checkout-copy').hidden=!copy;
   $('#checkout-amount').textContent=activeCheckout.amount_minor ? money(activeCheckout.amount_minor,activeCheckout.currency) : '';
-  const qr=safeCheckoutURL(activeCheckout.qr_url);const qrContainer=$('#checkout-qr-container');qrContainer.hidden=!qr || finalState;
+  const qr=safeCheckoutURL(activeCheckout.qr_url);const qrContainer=$('#checkout-qr-container');qrContainer.hidden=!qr || finalState || needsVerification;
   if(qr){let image=$('#checkout-qr');if(!image){image=document.createElement('img');image.id='checkout-qr';image.alt=t('qrAlt');image.src=qr;qrContainer.append(image);}else{image.src=qr;image.alt=t('qrAlt');}}
-  const link=safeCheckoutURL(activeCheckout.checkout_url);$('#checkout-link').hidden=!link || finalState;if(link)$('#checkout-link').href=link;
-  $('#checkout-instructions').hidden=!activeCheckout.instructions || finalState;$('#checkout-instructions').textContent=activeCheckout.instructions || '';
-  $('#status-refresh').hidden=finalState;
-  if(!activeCheckout.pollError) $('#status-detail').textContent=key==='pending' ? t(activeCheckout.custom?'customWaiting':'statusWaiting') : key==='paid' ? `${t('statusConfirmed')}${activeCheckout.paid_at ? ` · ${new Intl.DateTimeFormat(locale,{dateStyle:'medium',timeStyle:'short'}).format(new Date(activeCheckout.paid_at))}`:''}` : '';
+  const link=safeCheckoutURL(activeCheckout.checkout_url);$('#checkout-link').hidden=!link || finalState || needsVerification;if(link)$('#checkout-link').href=link;
+  $('#checkout-instructions').hidden=!activeCheckout.instructions || finalState || needsVerification;$('#checkout-instructions').textContent=activeCheckout.instructions || '';
+  $('#status-refresh').hidden=finalState && !['cancelled','expired'].includes(key);
+  $('#status-refresh').disabled=cancellationBusy;
+  $('#cancel-payment').hidden=finalState || needsVerification || activeCheckout.can_cancel!==true;
+  $('#cancel-payment').disabled=cancellationBusy;
+  $('#cancel-payment-label').textContent=t(cancellationBusy?'cancelling':'cancelPayment');
+  if(!activeCheckout.pollError) $('#status-detail').textContent=needsVerification ? t('checking') : key==='pending' ? t(activeCheckout.custom?'customWaiting':'statusWaiting') : key==='paid' ? `${t('statusConfirmed')}${activeCheckout.paid_at ? ` · ${new Intl.DateTimeFormat(locale,{dateStyle:'medium',timeStyle:'short'}).format(new Date(activeCheckout.paid_at))}`:''}` : '';
   if(finalState)clearTimeout(pollTimer);
+  scheduleExpiryCheck();
 }
 function schedulePoll(delay=6000) {clearTimeout(pollTimer);if(!activeCheckout || document.hidden)return;pollTimer=setTimeout(()=>pollStatus(false),delay);}
+function scheduleExpiryCheck() {
+  clearTimeout(expiryTimer);
+  if(!activeCheckout || cancellationBusy || !['pending','created','processing',''].includes(activeCheckout.status || ''))return;
+  const delay=Date.parse(activeCheckout.expires_at)-Date.now();
+  if(!Number.isFinite(delay) || delay<=0)return;
+  const id=activeCheckout.id;
+  expiryTimer=setTimeout(()=>{if(activeCheckout?.id===id)pollStatus(true);},Math.min(delay+1000,2147483647));
+}
 async function pollStatus(manual=false) {
-  if(!activeCheckout)return;
+  if(!activeCheckout || cancellationBusy)return;
   if(!manual && pollCount>=150){$('#status-detail').textContent=t('autoCheckPaused');return;}
-  const button=$('#status-refresh');button.disabled=true;$('#status-refresh-label').textContent=t('checking');const id=activeCheckout.id;
+  clearTimeout(pollTimer);clearTimeout(expiryTimer);
+  const button=$('#status-refresh');button.disabled=true;$('#status-refresh-label').textContent=t('checking');const id=activeCheckout.id;const sequence=++checkoutSequence;
   try {
-    const status=await request(`/api/donations/${encodeURIComponent(id)}?token=${encodeURIComponent(activeCheckout.status_token)}`);
-    if(activeCheckout?.id!==id)return;
+    const status=await request(`/api/donations/${encodeURIComponent(id)}?token=${encodeURIComponent(activeCheckout.status_token)}`,{cache:'no-store'});
+    if(activeCheckout?.id!==id || sequence!==checkoutSequence)return;
+    if(status.id!==id)throw new Error(t('statusUnavailable'));
+    verifiedCheckout=status;
     Object.assign(activeCheckout,status,{pollError:false});renderCheckout();pollCount++;
+    await restoreReceiptProject(status,id,sequence);
+    if(activeCheckout?.id!==id || sequence!==checkoutSequence)return;
+    if(['paid','confirmed','completed','succeeded'].includes(status.status) && !confirmedReceipt())throw new Error(t('statusUnavailable'));
     if(['pending','created','processing',''].includes(status.status || ''))schedulePoll(activeCheckout.custom?12000:6000);
-    if(['paid','confirmed','completed','succeeded'].includes(status.status)) {try {site=await request('/api/site');renderRecent();}catch{}}
+    if(['paid','confirmed','completed','succeeded'].includes(status.status)) {
+      const updates=await Promise.allSettled([request('/api/site'),readProjects()]);
+      if(updates[0].status==='fulfilled'){site=updates[0].value;renderRecent();}
+      if(updates[1].status==='fulfilled'){projects=updates[1].value;activeProject=projects.find(item=>item.id===projectId) || null;projectError=projectId && !activeProject ? 'projectUnavailable' : '';renderProjects();}
+    }
   }catch{
-    if(activeCheckout?.id!==id)return;
-    activeCheckout.pollError=true;$('#status-detail').textContent=t('statusUnavailable');pollCount++;schedulePoll(15000);
-  }finally {button.disabled=false;$('#status-refresh-label').textContent=t('checkPayment');}
+    if(activeCheckout?.id!==id || sequence!==checkoutSequence)return;
+    activeCheckout.pollError=true;$('#status-detail').textContent=t('statusUnavailable');pollCount++;schedulePoll(15000);scheduleExpiryCheck();
+  }finally {if(activeCheckout?.id===id && sequence===checkoutSequence){button.disabled=false;$('#status-refresh-label').textContent=t('checkPayment');}}
+}
+async function cancelPayment() {
+  if(cancellationBusy || !activeCheckout || activeCheckout.can_cancel!==true)return;
+  const id=activeCheckout.id;const sequence=++checkoutSequence;
+  cancellationBusy=true;clearTimeout(pollTimer);renderCheckout();
+  let recheck=false;
+  try {
+    const result=await request(`/api/donations/${encodeURIComponent(id)}/cancel`,{method:'POST',body:JSON.stringify({status_token:activeCheckout.status_token}),headers:donorSession.authenticated && donorSession.csrf_token ? {'X-CSRF-Token':donorSession.csrf_token} : {}});
+    if(activeCheckout?.id!==id || sequence!==checkoutSequence)return;
+    if(result.id!==id)throw new Error(t('requestFailed'));
+    verifiedCheckout=null;Object.assign(activeCheckout,result,{pollError:false});
+    recheck=true;
+  }catch(error){
+    if(activeCheckout?.id!==id || sequence!==checkoutSequence)return;
+    activeCheckout.pollError=true;$('#status-detail').textContent=error.message || t('requestFailed');recheck=error.status===409;
+  }finally {
+    if(activeCheckout?.id===id && sequence===checkoutSequence){cancellationBusy=false;renderCheckout();if(recheck)pollStatus(true);else if(['pending','created','processing',''].includes(activeCheckout.status || ''))schedulePoll();}
+  }
 }
 $('#donation-form').addEventListener('submit',async event=>{
-  event.preventDefault();if(submissionBusy || donorBusy || !site)return;
+  event.preventDefault();if(submissionBusy || donorBusy || !site || projectBlocked())return;
   $('#form-error').hidden=true;$('#amount-error').hidden=true;
   let amountMinor;
   try {amountMinor=parseAmount();}catch(error){$('#amount-error').textContent=error.message;$('#amount-error').hidden=false;$('#amount').focus();return;}
@@ -266,7 +416,7 @@ $('#donation-form').addEventListener('submit',async event=>{
     const identityBeforeSubmit=donorIdentity();const identityWasKnown=donorSessionKnown;
     try {await refreshDonorSession();}catch{}
     if(identityWasKnown && identityBeforeSubmit!==donorIdentity())throw new Error(t(donorSession.authenticated?'sessionChanged':'sessionExpired'));
-    const body=JSON.stringify({amount_minor:amountMinor,currency,method_id:selected.value,name:site.collect_name ? $('#donor-name').value.trim() : '',email:site.collect_email ? $('#donor-email').value.trim() : '',message:site.collect_message ? $('#donor-message').value.trim() : '',public:$('#donor-public').checked,accepted_terms:true});
+    const body=JSON.stringify({amount_minor:amountMinor,currency,method_id:selected.value,project_id:activeProject?.id || '',name:site.collect_name ? $('#donor-name').value.trim() : '',email:site.collect_email ? $('#donor-email').value.trim() : '',message:site.collect_message ? $('#donor-message').value.trim() : '',public:$('#donor-public').checked,public_thanks:$('#donor-public-thanks').checked,accepted_terms:true});
     const fingerprint=`${donorIdentity()}\n${body}`;
     if(fingerprint!==donationFingerprint || !donationIdempotency){donationFingerprint=fingerprint;donationIdempotency=crypto.randomUUID ? crypto.randomUUID() : Array.from(crypto.getRandomValues(new Uint8Array(24)),byte=>byte.toString(16).padStart(2,'0')).join('');}
     const donation=await request('/api/donations',{method:'POST',body,headers:{'Idempotency-Key':donationIdempotency,...(donorSession.authenticated && donorSession.csrf_token ? {'X-CSRF-Token':donorSession.csrf_token} : {})}});
@@ -275,7 +425,7 @@ $('#donation-form').addEventListener('submit',async event=>{
     const checkout=safeCheckoutURL(donation.checkout_url);
     if(checkout && method?.type!=='custom')location.assign(checkout);
   }catch(error){$('#form-error').textContent=error.message || t('requestFailed');$('#form-error').hidden=false;}
-  finally{submissionBusy=false;$('#donate-button').disabled=donorBusy || !$('input[name=method_id]:not(:disabled)');$('#donate-button span').textContent=t('donate');renderDonorAccount();}
+  finally{submissionBusy=false;$('#donate-button').disabled=donorBusy || projectBlocked() || !$('input[name=method_id]:not(:disabled)');$('#donate-button span').textContent=t('donate');renderDonorAccount();}
 });
 $('#amount').addEventListener('input',()=>{$('#amount-error').hidden=true;markPreset();});
 $('#random-amount').addEventListener('click',randomizeAmount);
@@ -285,7 +435,10 @@ $$('[data-policy]').forEach(button=>button.addEventListener('click',()=>showPoli
 $('#close-policy').addEventListener('click',()=>$('#policy-dialog').close());
 $('#policy-dialog').addEventListener('click',event=>{if(event.target===$('#policy-dialog')){const box=event.target.getBoundingClientRect();if(event.clientX<box.left || event.clientX>box.right || event.clientY<box.top || event.clientY>box.bottom)event.target.close();}});
 $('#status-refresh').addEventListener('click',()=>{pollCount=0;pollStatus(true);});
-$('#new-donation').addEventListener('click',()=>{clearTimeout(pollTimer);activeCheckout=null;donationFingerprint='';donationIdempotency='';$('#checkout-status').hidden=true;$('#donation-form').hidden=false;const url=new URL(location.href);url.searchParams.delete('donation');url.searchParams.delete('status_token');history.replaceState(null,'',url);$('#amount').focus();});
+$('#cancel-payment').addEventListener('click',cancelPayment);
+function returnToDonation(){clearTimeout(pollTimer);clearTimeout(expiryTimer);checkoutSequence++;activeCheckout=null;verifiedCheckout=null;cancellationBusy=false;donationFingerprint='';donationIdempotency='';$('#donor-public-thanks').checked=false;$('#checkout-status').hidden=true;$('#donation-thanks').hidden=true;$('#donation-form').hidden=false;$('#custom-copy').hidden=$('#site-tagline').hidden && $('#site-description').hidden;const url=new URL(location.href);url.searchParams.delete('donation');url.searchParams.delete('status_token');url.searchParams.delete('cancelled');history.replaceState(null,'',url);renderRecent();renderAnnouncement();renderProjects();renderDonorAccount();$('#amount').focus();}
+$('#new-donation').addEventListener('click',returnToDonation);
+$('#thanks-back').addEventListener('click',returnToDonation);
 let logoClicks=[];
 $('#logo').addEventListener('click',()=>{const now=Date.now();logoClicks=logoClicks.filter(time=>now-time<3000);logoClicks.push(now);if(logoClicks.length>=5)location.assign('/admin');});
 
@@ -350,7 +503,7 @@ function renderDonorAccount() {
   const loggedIn=!!donorSession.authenticated;
   $('#donor-account-label').textContent=t(loggedIn?'account':'signIn');
   $('#donor-account-entry').disabled=submissionBusy;
-  $('#donate-button').disabled=submissionBusy || donorBusy || !$('input[name=method_id]:not(:disabled)');
+  $('#donate-button').disabled=submissionBusy || donorBusy || projectBlocked() || !$('input[name=method_id]:not(:disabled)');
   $('#donor-title').textContent=t(loggedIn?'account':'signIn');
   $('#donor-auth-actions').hidden=loggedIn;
   $('#donor-account').hidden=!loggedIn;
@@ -361,7 +514,7 @@ function renderDonorAccount() {
     const header=document.createElement('header');
     const amount=document.createElement('span');amount.className='account-donation-amount';amount.textContent=money(donation.amount_minor,donation.currency);
     const status=document.createElement('span');status.className='account-donation-state';
-    const statusKey={pending:'historyPending',created:'historyPending',processing:'historyPending',confirmed:'historyConfirmed',paid:'historyConfirmed',completed:'historyConfirmed',succeeded:'historyConfirmed',failed:'historyFailed',refunded:'historyRefunded',cancelled:'historyCancelled',canceled:'historyCancelled'}[donation.status];
+    const statusKey={pending:'historyPending',created:'historyPending',processing:'historyPending',confirmed:'historyConfirmed',paid:'historyConfirmed',completed:'historyConfirmed',succeeded:'historyConfirmed',failed:'historyFailed',refunded:'historyRefunded',cancelled:'historyCancelled',canceled:'historyCancelled',expired:'historyExpired'}[donation.status];
     status.textContent=statusKey ? t(statusKey) : donation.status || '';
     header.append(amount,status);entry.append(header);
     if(donation.method_name) {const method=document.createElement('p');method.textContent=donation.method_name;entry.append(method);}
@@ -479,22 +632,24 @@ document.addEventListener('visibilitychange',()=>{
   if(document.hidden)clearTimeout(pollTimer);
   else if(activeCheckout)schedulePoll(800);
 });
+window.addEventListener('pagehide',()=>{clearTimeout(pollTimer);clearTimeout(expiryTimer);});
+window.addEventListener('pageshow',event=>{if(event.persisted && activeCheckout){verifiedCheckout=null;renderCheckout();pollStatus(true);}});
 
 async function start(){
   try {
-    site=await request('/api/site');locale=selectLocale();
+    const initial=await Promise.allSettled([request('/api/site'),readProjects()]);
+    if(initial[0].status==='rejected')throw initial[0].reason;
+    site=initial[0].value;locale=selectLocale();
+    if(initial[1].status==='fulfilled')projects=initial[1].value;else projectError='projectLoadFailed';
+    if(projectId){try {activeProject=projects.find(item=>item.id===projectId) || await readProject(projectId);projectError='';}catch(error){projectError=error.status===404?'projectUnavailable':'projectLoadFailed';}}
     const languages=(site.languages || supportedLocales).filter(language=>supportedLocales.includes(language));
     $$('#language option').forEach(option=>{option.hidden=!languages.includes(option.value);option.disabled=option.hidden;});
-    const currencyOptions=site.currencies?.length ? site.currencies : ['USD','CNY','TWD','EUR','GBP','HKD','JPY'];
-    $('#currency').replaceChildren(...currencyOptions.map(value=>{const option=document.createElement('option');option.value=value;option.textContent=value;return option;}));
     $('#name-field').hidden=!site.collect_name;$('#email-field').hidden=!site.collect_email;$('#message-field').hidden=!site.collect_message;
     $('#public-consent-label').hidden=!site.collect_name && !site.collect_message;
     $('.donor-details').hidden=!site.collect_name && !site.collect_email && !site.collect_message;
     if(site.contact_email){$('#contact-link').href=`mailto:${site.contact_email}`;$('#contact-link').hidden=false;}
     applyLanguage();setCurrency(site.language_currencies?.[locale] || {'zh-CN':'CNY','zh-TW':'TWD',en:'USD'}[locale],false);renderRecent();
-    const params=new URLSearchParams(location.search);
-    const id=params.get('donation'),token=params.get('status_token');
-    if(id && token){showCheckout({id,status_token:token,status:'pending'});await pollStatus(true);}
+    if(returnedReceipt){showCheckout(returnedReceipt);await pollStatus(true);}
   }catch(error){
     applyLanguage();$('#payment-methods').replaceChildren();const note=document.createElement('p');note.className='empty-note';note.textContent=t('loadFailed');$('#payment-methods').append(note);$('#donate-button').disabled=true;
   }

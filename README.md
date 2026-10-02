@@ -4,6 +4,8 @@
 
 Go 单文件程序内嵌网页，SQLite 保存配置、捐款和通知队列。不需要 Node.js、外部数据库或 C 运行库。支持 Linux amd64 / arm64；提供标准 `.deb`、`.rpm`、`.apk`、Arch Linux 包和便携压缩包。
 
+[![Donate](https://donate.lmm.best/badge.svg?project=donate&currency=CNY&lang=zh-CN&period=all&layout=compact&theme=dark&width=360&title=Donate)](https://donate.lmm.best/?project=donate)
+
 ## 本地运行
 
 需要 `go.mod` 指定的 Go 版本和 Make。
@@ -53,6 +55,8 @@ Passkey 全部丢失时，停止服务并通过命令行重置：
 
 捐赠者可选择用 Passkey 创建账号或登录，不登录也能捐。登录后的捐款关联到固定账号 ID，用户可以查看自己的记录，并添加备用 Passkey；用户账号没有后台权限。访客捐款不会仅凭相同姓名或邮箱自动归入账号。账号 ID 可供以后扩展小游戏访问或其他福利，当前不承诺或发放权益。
 
+管理员也可用已有的后台 Passkey 在首页登录，捐款归入固定的个人账号；首页登录只建立捐赠者会话。后台仍须单独验证管理员凭证，普通用户及其备用 Passkey 无法进入后台。命令行重置管理员登录后，旧管理员 Passkey 不能再用于登录，新管理员 Passkey 可继续使用原有的捐赠记录。
+
 ## 收款
 
 提供 Waffo Pancake、Stripe、PayPal 连接，以及自定义付款链接和上传捐赠二维码。支付平台的商户账号、密钥和回调设置需要自行配置；连接参数见 [支付配置](docs/PAYMENTS.md)。Waffo 的店铺选择和商品管理见 [Waffo 商品配置](docs/WAFFO-CATALOG.md)。
@@ -60,6 +64,12 @@ Passkey 全部丢失时，停止服务并通过命令行重置：
 Waffo 的 [商户用途规则](https://docs.waffo.ai/mor/prohibited-products) 禁止慈善、政治、宗教组织等用途，[服务条款](https://waffo.com/en/terms) 也禁止没有真实商品或服务交易的收款。本项目的纯自愿开源资助需 Waffo 明确批准；同一所有者、独立开发者准入或 API 请求成功都不能代替用途批准。支付适配器已实现，可先保存停用的测试配置，批准后再启用生产收款。Waffo 不支持 TWD，站点可以保留 TWD，但应搭配支持该币种的其他方式。
 
 支付平台返回的页面不能证明到账。在线支付仅在通过验证的回调或服务端确认后记为已支付。二维码或自定义链接付款会保留为待确认，核实收款后在后台确认；也可手动录入线下捐款。统计只计算已确认捐款，按币种分别汇总。
+
+到账后显示感谢页。付款等待中可以取消；线上未完成订单默认 45 分钟后过期，重启后继续按原期限处理。取消不会退款，已提交且随后确认的真实付款仍会入账。二维码和线下记录不自动过期。
+
+后台可创建筹款项目、设置币种与目标金额。每个项目有独立捐款链接和进度 SVG；已筹金额只包含该项目已确认、未退款的捐款。项目可以归档和恢复，历史记录保留。
+
+捐赠人可以另外勾选「允许公开致谢」，默认不勾选，允许维护者在致谢网页或小游戏中展示昵称，邮箱不公开。该许可与本站公开称呼、留言的选项分别记录。后台也可填写公告文字和链接，留空时首页不显示。
 
 可配置 SMTP 邮件和 Webhook 通知。已确认捐款会产生持久化通知，包含捐款人信息、时间、支付方式、金额和币种；SMTP 支持 465 隐式 TLS 和其他端口的 STARTTLS；Webhook 使用 HMAC 签名并重试失败请求，后台可查看发送状态和手动重试。接收端应按事件 ID 去重。金额字段使用整数最小货币单位，例如 USD 500 表示 5 美元，JPY 500 表示 500 日元。
 
@@ -74,7 +84,7 @@ curl -H 'Authorization: Bearer YOUR_STATS_TOKEN' http://localhost:8080/api/priva
 
 `/api/stats` 提供公开聚合统计；`/api/private/stats` 使用后台配置的统计令牌，不返回捐款人个人信息。后台另有捐款列表、筛选、手动录入和 CSV 导出。详细接口见 [接口约定](docs/CONTRACT.md)。
 
-后台「公开徽章」可预览捐赠 SVG，复制 GitHub README、HTML 或图片地址。支持黑色、白色和透明背景，收据或横条版式、语言、币种、统计周期和短标题；图片只包含已确认捐款的总额与笔数，不包含捐赠者资料，各币种分别统计。
+后台「公开徽章」可预览捐赠 SVG，复制 GitHub README、HTML 或图片地址。支持黑色、白色和透明背景，收据或横条版式、语言、币种、统计周期和短标题；图片只包含已确认捐款的总额与笔数，不包含捐赠者资料，各币种分别统计。选择项目后会展示已筹金额、目标与进度，使用项目币种及全部时间，点击链接进入对应项目的捐款页。
 
 ```markdown
 [![Donate](https://donate.example.com/badge.svg?currency=USD&lang=en&period=30d&layout=compact)](https://donate.example.com/)
@@ -107,7 +117,7 @@ make cross          # 不依赖 CGO 的 Linux amd64 / arm64 程序
 make snapshot       # GoReleaser 2.18.2：本地产生压缩包、原生包和 SHA-256 校验和
 ```
 
-浏览器验收另外使用 Node.js 24 和 Playwright，测试在临时数据目录启动应用，覆盖 Passkey、捐赠、后台和窄屏交互，不连接真实支付商户：
+浏览器验收另外使用 Node.js 24、Playwright 和 Python 3（临时 SQLite 场景），测试在临时数据目录启动应用，覆盖 Passkey、捐赠、后台和窄屏交互，不连接真实支付商户：
 
 ```sh
 npm ci

@@ -2,7 +2,6 @@ package app
 
 import (
 	"bytes"
-	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -136,7 +135,7 @@ func New(dataDir, publicURL string, assets fs.FS) (*App, error) {
 		db.Close()
 		return nil, e
 	}
-	if a.Donors, e = donors.New(db, a.PublicURL); e != nil {
+	if a.Donors, e = donors.New(db, a.PublicURL, donors.WithAdministratorPasskeys(a.Auth)); e != nil {
 		db.Close()
 		return nil, e
 	}
@@ -160,6 +159,12 @@ func (a *App) migrate() error {
 	if e = a.migrateDonorOwnership(); e != nil {
 		return e
 	}
+	if e = a.migrateCheckoutExpiry(); e != nil {
+		return e
+	}
+	if e = a.migrateProjects(); e != nil {
+		return e
+	}
 	var count int
 	if e = a.DB.QueryRow("SELECT count(*) FROM settings").Scan(&count); e != nil {
 		return e
@@ -169,8 +174,7 @@ func (a *App) migrate() error {
 	}
 	return nil
 }
-func (a *App) Close() error            { return a.DB.Close() }
-func (a *App) Run(ctx context.Context) { a.Notify.Run(ctx) }
+func (a *App) Close() error { return a.DB.Close() }
 func (a *App) Backup(path string) error {
 	absolute, e := filepath.Abs(path)
 	if e != nil {
@@ -223,15 +227,21 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("GET /terms", a.legal)
 	mux.HandleFunc("GET /privacy", a.legal)
 	mux.HandleFunc("GET /api/stats", a.publicStats)
+	mux.HandleFunc("GET /api/projects", a.listProjects)
+	mux.HandleFunc("GET /api/projects/{id}", a.publicProjectHandler)
 	mux.HandleFunc("GET /badge.svg", a.publicBadge)
 	mux.HandleFunc("GET /api/private/stats", a.privateStats)
 	mux.HandleFunc("POST /api/donations", a.createDonation)
 	mux.HandleFunc("GET /api/donations/{id}", a.donationStatus)
+	mux.HandleFunc("POST /api/donations/{id}/cancel", a.cancelDonation)
 	mux.HandleFunc("POST /api/webhooks/{provider}", a.providerWebhook)
 	mux.HandleFunc("GET /api/paypal/return", a.paypalReturn)
 	mux.HandleFunc("GET /api/admin/settings", a.Auth.Require(a.getSettings))
 	mux.HandleFunc("PUT /api/admin/settings", a.Auth.Require(a.putSettings))
 	mux.HandleFunc("POST /api/admin/upload", a.Auth.Require(a.upload))
+	mux.HandleFunc("GET /api/admin/projects", a.Auth.Require(a.listAdminProjects))
+	mux.HandleFunc("POST /api/admin/projects", a.Auth.Require(a.createProject))
+	mux.HandleFunc("PUT /api/admin/projects/{id}", a.Auth.Require(a.updateProject))
 	mux.HandleFunc("GET /api/admin/donations", a.Auth.Require(a.listDonations))
 	mux.HandleFunc("POST /api/admin/donations", a.Auth.Require(a.manualDonation))
 	mux.HandleFunc("POST /api/admin/donations/{id}/confirm", a.Auth.Require(a.confirmDonation))

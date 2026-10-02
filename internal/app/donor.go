@@ -34,13 +34,16 @@ func (a *App) checkoutDonor(r *http.Request) (string, error) {
 }
 
 type donorDonation struct {
-	ID          string `json:"id"`
-	AmountMinor int64  `json:"amount_minor"`
-	Currency    string `json:"currency"`
-	MethodName  string `json:"method_name"`
-	Status      string `json:"status"`
-	CreatedAt   string `json:"created_at"`
-	PaidAt      string `json:"paid_at"`
+	ID           string `json:"id"`
+	AmountMinor  int64  `json:"amount_minor"`
+	Currency     string `json:"currency"`
+	MethodName   string `json:"method_name"`
+	Status       string `json:"status"`
+	CreatedAt    string `json:"created_at"`
+	PaidAt       string `json:"paid_at"`
+	ProjectID    string `json:"project_id"`
+	ProjectName  string `json:"project_name"`
+	PublicThanks bool   `json:"public_thanks"`
 }
 
 func (a *App) donorDonations(w http.ResponseWriter, r *http.Request) {
@@ -75,7 +78,7 @@ func (a *App) donorDonations(w http.ResponseWriter, r *http.Request) {
 		internalError(w)
 		return
 	}
-	rows, err := tx.QueryContext(r.Context(), "SELECT id,amount_minor,currency,method_name,status,created_at,paid_at FROM donations WHERE donor_user_id=? AND donor_user_id<>'' ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?", user.ID, limit, offset)
+	rows, err := tx.QueryContext(r.Context(), "SELECT d.id,d.amount_minor,d.currency,d.method_name,d.status,d.created_at,d.paid_at,d.project_id,coalesce(p.name,''),d.public_thanks FROM donations d LEFT JOIN projects p ON p.id=d.project_id WHERE d.donor_user_id=? AND d.donor_user_id<>'' ORDER BY d.created_at DESC,d.id DESC LIMIT ? OFFSET ?", user.ID, limit, offset)
 	if err != nil {
 		internalError(w)
 		return
@@ -84,7 +87,7 @@ func (a *App) donorDonations(w http.ResponseWriter, r *http.Request) {
 	items := []donorDonation{}
 	for rows.Next() {
 		var d donorDonation
-		if err = rows.Scan(&d.ID, &d.AmountMinor, &d.Currency, &d.MethodName, &d.Status, &d.CreatedAt, &d.PaidAt); err != nil {
+		if err = rows.Scan(&d.ID, &d.AmountMinor, &d.Currency, &d.MethodName, &d.Status, &d.CreatedAt, &d.PaidAt, &d.ProjectID, &d.ProjectName, &d.PublicThanks); err != nil {
 			internalError(w)
 			return
 		}

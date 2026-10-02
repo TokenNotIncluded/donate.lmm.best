@@ -26,6 +26,10 @@ func stripeTestSignature(body string, secret string, timestamp int64) string {
 }
 
 func TestStripeCreatesBoundHostedCheckout(t *testing.T) {
+	// The donation was created five minutes ago; retry must keep its original deadline.
+	expiry := time.Now().Add(40 * time.Minute)
+	firstBody := ""
+	attempts := 0
 	s := &Service{Client: &http.Client{Transport: paymentTestTransport(func(r *http.Request) (*http.Response, error) {
 		if r.URL.String() != "https://api.stripe.com/v1/checkout/sessions" || r.Method != "POST" {
 			t.Fatal(r.URL, r.Method)
@@ -34,9 +38,19 @@ func TestStripeCreatesBoundHostedCheckout(t *testing.T) {
 			t.Fatal("missing request authority/idempotency")
 		}
 		body, _ := io.ReadAll(r.Body)
+		attempts++
+		if attempts == 1 {
+			firstBody = string(body)
+		} else if string(body) != firstBody {
+			t.Fatal("Stripe retry changed the form under the same idempotency key")
+		}
 		form, err := url.ParseQuery(string(body))
 		if err != nil {
 			t.Fatal(err)
+		}
+		expiresAt, err := strconv.ParseInt(form.Get("expires_at"), 10, 64)
+		if err != nil || expiresAt != expiry.Unix() {
+			t.Errorf("checkout expiry changed from the persisted deadline: %q", form.Get("expires_at"))
 		}
 		for key, want := range map[string]string{"client_reference_id": "d_123", "metadata[donation_id]": "d_123", "metadata[method_id]": "stripe-main", "payment_intent_data[metadata][donation_id]": "d_123", "line_items[0][price_data][unit_amount]": "1234", "line_items[0][price_data][currency]": "usd", "mode": "payment"} {
 			if form.Get(key) != want {
@@ -45,9 +59,25 @@ func TestStripeCreatesBoundHostedCheckout(t *testing.T) {
 		}
 		return paymentResponse(200, `{"id":"cs_test_123","url":"https://checkout.stripe.com/c/pay/cs_test_123"}`), nil
 	})}}
-	result, err := s.Checkout(context.Background(), stripeTestMethod(), CheckoutRequest{ID: "d_123", AmountMinor: 1234, Currency: "USD", ReturnURL: "https://example.com/?donation=d_123", CancelURL: "https://example.com/"})
-	if err != nil || result.Reference != "cs_test_123" {
-		t.Fatal(result, err)
+	in := CheckoutRequest{ID: "d_123", AmountMinor: 1234, Currency: "USD", ReturnURL: "https://example.com/?donation=d_123", CancelURL: "https://example.com/", ExpiresAt: expiry.Format(time.RFC3339Nano)}
+	for range 2 {
+		result, err := s.Checkout(context.Background(), stripeTestMethod(), in)
+		if err != nil || result.Reference != "cs_test_123" {
+			t.Fatal(result, err)
+		}
+	}
+}
+
+func TestStripeRejectsMissingOrInvalidPersistedExpiry(t *testing.T) {
+	s := &Service{Client: &http.Client{Transport: paymentTestTransport(func(r *http.Request) (*http.Response, error) {
+		t.Fatal("invalid expiry reached the payment provider")
+		return nil, nil
+	})}}
+	for _, expiry := range []string{"", "not-a-date", "1960-01-01T00:00:00Z"} {
+		_, err := s.Checkout(context.Background(), stripeTestMethod(), CheckoutRequest{ID: "d_123", AmountMinor: 100, Currency: "USD", ReturnURL: "https://example.com/", CancelURL: "https://example.com/", ExpiresAt: expiry})
+		if err == nil {
+			t.Fatalf("invalid persisted expiry accepted: %q", expiry)
+		}
 	}
 }
 

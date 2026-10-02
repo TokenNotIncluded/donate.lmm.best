@@ -268,7 +268,7 @@ func TestDonorMigrationPreservesLegacyDonationsAdministratorAndGuestRetry(t *tes
 	if err = a.DB.QueryRow("SELECT password_enabled FROM auth_state WHERE id=1").Scan(&enabled); err != nil || enabled {
 		t.Fatalf("migration enabled password authentication: %v", err)
 	}
-	if err = a.DB.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 2 {
+	if err = a.DB.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 4 {
 		t.Fatalf("schema migration not recorded: %d, %v", version, err)
 	}
 	retried := createCustom(t, a, in, key)

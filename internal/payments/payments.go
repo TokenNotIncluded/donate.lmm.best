@@ -32,6 +32,7 @@ type CheckoutRequest struct {
 	ID                                                      string
 	AmountMinor                                             int64
 	Currency, Name, Email, ReturnURL, CancelURL, WebhookURL string
+	ExpiresAt                                               string // Persisted RFC3339 deadline; provider retries must reuse it.
 }
 
 type CheckoutResult struct{ URL, Reference string }

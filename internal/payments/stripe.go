@@ -36,8 +36,13 @@ func stripeHeaders(m Method) http.Header {
 }
 
 func (s *Service) checkoutStripe(ctx context.Context, m Method, in CheckoutRequest) (CheckoutResult, error) {
+	expiresAt, err := time.Parse(time.RFC3339Nano, in.ExpiresAt)
+	if err != nil || expiresAt.Unix() <= 0 {
+		return CheckoutResult{}, errors.New("Stripe checkout needs a persisted expiry")
+	}
 	form := url.Values{
 		"mode": {"payment"}, "success_url": {in.ReturnURL}, "cancel_url": {in.CancelURL},
+		"expires_at":          {strconv.FormatInt(expiresAt.Unix(), 10)},
 		"client_reference_id": {in.ID}, "metadata[donation_id]": {in.ID}, "metadata[method_id]": {m.ID},
 		"payment_intent_data[metadata][donation_id]": {in.ID}, "payment_intent_data[metadata][method_id]": {m.ID},
 		"line_items[0][quantity]": {"1"}, "line_items[0][price_data][currency]": {strings.ToLower(in.Currency)},

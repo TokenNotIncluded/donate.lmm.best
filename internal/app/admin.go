@@ -86,16 +86,36 @@ func (a *App) putSettings(w http.ResponseWriter, r *http.Request) {
 }
 func (a *App) listDonations(w http.ResponseWriter, r *http.Request) {
 	status := r.URL.Query().Get("status")
-	if status != "" && status != "pending" && status != "confirmed" && status != "refunded" {
+	if status != "" && !contains([]string{"pending", "confirmed", "refunded", "cancelled", "expired"}, status) {
 		fail(w, 400, "状态无效")
 		return
 	}
 	limit, offset := limitOffset(r)
 	where := ""
 	args := []any{}
+	clauses := []string{}
 	if status != "" {
-		where = " WHERE status=?"
+		clauses = append(clauses, "status=?")
 		args = append(args, status)
+	}
+	if projectID := r.URL.Query().Get("project_id"); projectID != "" {
+		if !validProjectID(projectID) || len(r.URL.Query()["project_id"]) > 1 {
+			fail(w, 400, "项目标识无效")
+			return
+		}
+		clauses = append(clauses, "project_id=?")
+		args = append(args, projectID)
+	}
+	if values, exists := r.URL.Query()["public_thanks"]; exists {
+		if len(values) != 1 || (values[0] != "true" && values[0] != "false") {
+			fail(w, 400, "公开致谢筛选值无效")
+			return
+		}
+		clauses = append(clauses, "public_thanks=?")
+		args = append(args, values[0] == "true")
+	}
+	if len(clauses) > 0 {
+		where = " WHERE " + strings.Join(clauses, " AND ")
 	}
 	var count int
 	if e := a.DB.QueryRow("SELECT count(*) FROM donations"+where, args...).Scan(&count); e != nil {
@@ -200,13 +220,21 @@ func (a *App) manualDonation(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	d := Donation{ID: randomToken(), StatusToken: randomToken(), AmountMinor: in.AmountMinor, Currency: in.Currency, MethodID: in.MethodID, MethodType: methodType, MethodName: methodName, Name: in.Name, Email: in.Email, Message: in.Message, Public: in.Public, Status: "confirmed", Source: "manual", Reference: in.Reference, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), PaidAt: paid, CheckoutKey: key, CheckoutDigest: requestDigest}
+	d := Donation{ID: randomToken(), StatusToken: randomToken(), AmountMinor: in.AmountMinor, Currency: in.Currency, MethodID: in.MethodID, MethodType: methodType, MethodName: methodName, Name: in.Name, Email: in.Email, Message: in.Message, Public: in.Public, Status: "confirmed", Source: "manual", Reference: in.Reference, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), PaidAt: paid, CheckoutKey: key, CheckoutDigest: requestDigest, ProjectID: in.ProjectID, PublicThanks: bool(in.PublicThanks)}
 	tx, e := a.DB.BeginTx(r.Context(), nil)
 	if e != nil {
 		internalError(w)
 		return
 	}
 	defer tx.Rollback()
+	if _, e = tx.ExecContext(r.Context(), "UPDATE projects SET updated_at=updated_at WHERE id=?", d.ProjectID); e != nil {
+		internalError(w)
+		return
+	}
+	if d.ProjectName, e = validateDonationProject(r.Context(), tx, d.ProjectID, d.Currency); e != nil {
+		fail(w, http.StatusBadRequest, e.Error())
+		return
+	}
 	if e = insertDonation(tx, d); e != nil {
 		internalError(w)
 		return
@@ -263,7 +291,7 @@ func (a *App) confirmDonation(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, d)
 		return
 	}
-	if d.Status != "pending" {
+	if !contains([]string{"pending", "cancelled", "expired"}, d.Status) {
 		fail(w, 409, "该状态不能确认")
 		return
 	}
@@ -302,13 +330,13 @@ func (a *App) exportDonations(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", `attachment; filename="donations.csv"`)
 	c := csv.NewWriter(w)
 	defer c.Flush()
-	_ = c.Write([]string{"id", "status", "amount_minor", "currency", "payment_method", "name", "email", "message", "public", "created_at", "paid_at", "source", "reference"})
+	_ = c.Write([]string{"id", "status", "amount_minor", "currency", "payment_method", "name", "email", "message", "public", "created_at", "paid_at", "source", "reference", "project_id", "project_name", "public_thanks"})
 	for rows.Next() {
 		d, e := scanDonation(rows)
 		if e != nil {
 			return
 		}
-		_ = c.Write([]string{d.ID, d.Status, strconv.FormatInt(d.AmountMinor, 10), d.Currency, safeCSV(d.MethodName), safeCSV(d.Name), safeCSV(d.Email), safeCSV(d.Message), strconv.FormatBool(d.Public), d.CreatedAt, d.PaidAt, d.Source, safeCSV(d.Reference)})
+		_ = c.Write([]string{d.ID, d.Status, strconv.FormatInt(d.AmountMinor, 10), d.Currency, safeCSV(d.MethodName), safeCSV(d.Name), safeCSV(d.Email), safeCSV(d.Message), strconv.FormatBool(d.Public), d.CreatedAt, d.PaidAt, d.Source, safeCSV(d.Reference), d.ProjectID, safeCSV(d.ProjectName), strconv.FormatBool(d.PublicThanks)})
 	}
 }
 func (a *App) listNotifications(w http.ResponseWriter, r *http.Request) {

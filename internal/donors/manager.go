@@ -1,5 +1,5 @@
-// Package donors owns optional donor identities. It shares neither credentials
-// nor authorization with the administrator's independent auth package.
+// Package donors owns optional donor identities. Its sessions grant no
+// administrator authorization, including when using an administrator passkey.
 package donors
 
 import (
@@ -43,13 +43,14 @@ type User struct {
 }
 
 type Manager struct {
-	db      *sql.DB
-	wa      *webauthn.WebAuthn
-	origin  string
-	secure  bool
-	mu      sync.Mutex
-	limitMu sync.Mutex
-	limits  map[string]rateWindow
+	db            *sql.DB
+	wa            *webauthn.WebAuthn
+	origin        string
+	secure        bool
+	mu            sync.Mutex
+	limitMu       sync.Mutex
+	limits        map[string]rateWindow
+	administrator AdministratorPasskeys
 }
 
 type rateWindow struct {
@@ -83,8 +84,8 @@ func (u passkeyUser) WebAuthnDisplayName() string {
 func (u passkeyUser) WebAuthnCredentials() []webauthn.Credential { return u.credentials }
 
 // New validates the exact public origin and creates independent donor tables.
-// No donor records are created before a verified WebAuthn registration.
-func New(db *sql.DB, publicURL string) (*Manager, error) {
+// No donor records are created before a verified WebAuthn ceremony.
+func New(db *sql.DB, publicURL string, options ...Option) (*Manager, error) {
 	if db == nil {
 		return nil, errors.New("donor database is required")
 	}
@@ -130,7 +131,14 @@ CREATE INDEX IF NOT EXISTS donor_challenges_expires ON donor_challenges(expires)
 	if err != nil {
 		return nil, fmt.Errorf("create donor authentication tables: %w", err)
 	}
-	return &Manager{db: db, wa: wa, origin: origin, secure: u.Scheme == "https", limits: make(map[string]rateWindow)}, nil
+	m := &Manager{db: db, wa: wa, origin: origin, secure: u.Scheme == "https", limits: make(map[string]rateWindow)}
+	for _, option := range options {
+		option(m)
+	}
+	if err = m.migrateIdentityLinks(); err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 func randomToken() (string, error) {

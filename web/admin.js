@@ -13,6 +13,30 @@ words.createAnother = ['创建另一个产品','Create another product','建立�
 words.storeChanged = ['店铺已选择','Store selected','店鋪已選擇'];
 words.account = ['账号','Account','帳號'];
 Object.assign(words, {
+  projects: ['项目','Projects','專案'],
+  projectName: ['项目名称','Project name','專案名稱'],
+  projectID: ['项目 ID','Project ID','專案 ID'],
+  projectGoal: ['目标金额','Goal','目標金額'],
+  projectRaised: ['已筹','Raised','已籌'],
+  createProject: ['创建项目','Create project','建立專案'],
+  saveProject: ['保存项目','Save project','儲存專案'],
+  newProject: ['新建项目','New project','新增專案'],
+  archiveProject: ['归档','Archive','封存'],
+  restoreProject: ['恢复','Restore','恢復'],
+  projectArchived: ['已归档','Archived','已封存'],
+  projectSaved: ['项目已保存','Project saved','專案已儲存'],
+  projectArchiveConfirm: ['归档此项目？','Archive this project?','封存此專案？'],
+  noProjects: ['暂无项目','No projects','暫無專案'],
+  allProjects: ['全部捐款','All donations','全部捐款'],
+  projectOptional: ['项目（可选）','Project (optional)','專案（選填）'],
+  allowThanks: ['允许致谢','Allow public thanks','允許致謝'],
+  yes: ['是','Yes','是'],
+  no: ['否','No','否'],
+  projectURL: ['项目链接（可选）','Project link (optional)','專案連結（選填）'],
+  announcement: ['公告','Announcement','公告'],
+  announcementURL: ['公告链接（可选）','Announcement link (optional)','公告連結（選填）'],
+  donationCancelled: ['已取消','Cancelled','已取消'],
+  donationExpired: ['已过期','Expired','已過期'],
   publicBadge: ['公开徽章','Public badge','公開徽章'],
   badgePreview: ['预览','Preview','預覽'],
   badgeConfirmed: ['已确认捐款','Confirmed donations','已確認捐款'],
@@ -67,6 +91,12 @@ let catalogIdentityFingerprint = '';
 let catalogMutating = false;
 let uploadsInFlight = 0;
 let noticeTimer;
+let adminProjects = [];
+let editingProjectID = '';
+let projectDraft = null;
+let projectMutating = false;
+let projectsSequence = 0;
+let badgeGenericState = null;
 let badgeState = null;
 let badgePreviewTimer;
 let badgeFormat = 'readme';
@@ -87,7 +117,7 @@ function updateBrand() {
   document.title = name;
 }
 function updateHeaderContext() {
-  const label = t({ledger:'ledger',site:'siteSettings',payments:'paymentMethods',catalog:'waffoProducts',notifications:'notifications',api:'statsSecurity',badges:'publicBadge'}[currentView] || 'ledger');
+  const label = t({ledger:'ledger',site:'siteSettings',payments:'paymentMethods',catalog:'waffoProducts',notifications:'notifications',api:'statsSecurity',badges:'publicBadge',projects:'projects'}[currentView] || 'ledger');
   return label;
 }
 function notify(message, error = false) {
@@ -136,7 +166,7 @@ async function busyCatalog(button, action) {
   if(button) button.disabled = false;
   try {return await busy(button,action);} finally {catalogMutating = false;states.forEach(([control,disabled]) => {control.disabled = disabled;});$$('#methods-form button, #site-form button, #notifications-form button').forEach(control => {control.disabled = !!uploadsInFlight;});}
 }
-function statusText(status) { return t({paid:'paid',confirmed:'paid',pending:'pending',refunded:'refunded',failed:'failed',sent:'sent',delivered:'sent',processing:'queued',queued:'queued',retry:'queued',active:'active',inactive:'inactive',draft:'draft'}[status] || status); }
+function statusText(status) { return t({paid:'paid',confirmed:'paid',pending:'pending',cancelled:'donationCancelled',expired:'donationExpired',refunded:'refunded',failed:'failed',sent:'sent',delivered:'sent',processing:'queued',queued:'queued',retry:'queued',active:'active',inactive:'inactive',draft:'draft'}[status] || status); }
 const option = (value, label, selected = false) => `<option value="${escapeHTML(value)}"${selected ? ' selected' : ''}>${escapeHTML(label)}</option>`;
 const currencyOptions = (selected, values = settings?.site?.currencies || currencies) => values.map(value => option(value, value, value === selected)).join('');
 function field(label, name, value = '', {type = 'text', full = false, required = false, readonly = false, maxlength = '', placeholder = '', rows = 4} = {}) {
@@ -225,14 +255,15 @@ async function loadAdmin() {
   renderSecurity();
   translateStatic();
   await loadLedger();
+  await busy(null,loadProjects);
 }
-function renderSettings() { renderSite(); renderMethods(); renderNotificationsForm();renderBadgeBuilder();if(catalogMutating) $$('#methods-form button, #site-form button, #notifications-form button').forEach(button => {button.disabled = true;}); }
+function renderSettings() { renderSite(); renderMethods(); renderNotificationsForm();renderProjectForm();renderProjects();renderBadgeBuilder();if(catalogMutating) $$('#methods-form button, #site-form button, #notifications-form button').forEach(button => {button.disabled = true;}); }
 function renderSite() {
   const site = settings.site;
   const activeLanguages = site.languages || languages;
   const activeCurrencies = site.currencies || currencies;
   const languageCurrencies = site.language_currencies || {'zh-CN':'CNY','zh-TW':'TWD','en':'USD'};
-  $('#site-form').innerHTML = `<div class="config-section"><h2>${escapeHTML(t('baseCopy'))}</h2><div class="form-grid">${field(t('name'),'site-name',site.name,{required:true,maxlength:80})}${field(t('tagline'),'site-tagline',site.tagline,{maxlength:200})}${field(t('description'),'site-description',site.description,{type:'textarea',full:true,maxlength:3000})}${field(t('footer'),'site-footer',site.footer,{maxlength:500})}${field(t('contactEmail'),'site-contact_email',site.contact_email,{type:'email'})}</div></div><div class="config-section"><h2>${escapeHTML(t('languageCurrency'))}</h2><div class="form-grid"><div class="field span-all"><span>${escapeHTML(t('enabledLanguages'))}</span><div class="check-group">${languages.map(value => check(langNames[value],`language-${value}`,activeLanguages.includes(value))).join('')}</div></div>${selectField(t('defaultLanguage'),'site-default_language',languages.map(value => option(value,langNames[value],value === (site.default_language || 'zh-CN'))).join(''))}${selectField(t('defaultCurrency'),'site-currency',currencyOptions(site.currency || 'USD',currencies))}<div class="field span-all"><span>${escapeHTML(t('enabledCurrencies'))}</span><div class="check-group">${currencies.map(value => check(value,`currency-${value}`,activeCurrencies.includes(value))).join('')}</div></div>${languages.map(value => selectField(`${t('localeCurrency')} · ${langNames[value]}`,`locale-currency-${value}`,currencyOptions(languageCurrencies[value] || 'USD',currencies))).join('')}${field(t('presets'),'site-presets',(site.presets || [5,15,50,100]).join(', '),{placeholder:'5, 15, 50, 100',required:true})}</div></div><div class="config-section"><h2>${escapeHTML(t('donorInfo'))}</h2><div class="check-group">${check(t('collectName'),'site-collect_name',site.collect_name)}${check(t('collectEmail'),'site-collect_email',site.collect_email)}${check(t('collectMessage'),'site-collect_message',site.collect_message)}</div></div><div class="config-section"><h2>${escapeHTML(t('terms'))} / ${escapeHTML(t('privacy'))}</h2><div class="form-grid">${field(t('terms'),'site-terms',site.terms,{type:'textarea',rows:6})}${field(t('privacy'),'site-privacy',site.privacy,{type:'textarea',rows:6})}</div></div><div class="config-section"><h2>${escapeHTML(t('translations'))}</h2>${languages.map(value => {const translation = site.translations?.[value] || {}; return `<details class="translation"><summary>${escapeHTML(langNames[value])}</summary><div class="form-grid">${['tagline','description','footer','terms','privacy'].map(key => field(t(key),`translation-${value}-${key}`,translation[key],{type:key === 'tagline' || key === 'footer' ? 'text' : 'textarea',full:key === 'description'})).join('')}</div></details>`;}).join('')}</div>${saveFooter()}`;
+  $('#site-form').innerHTML = `<div class="config-section"><h2>${escapeHTML(t('baseCopy'))}</h2><div class="form-grid">${field(t('name'),'site-name',site.name,{required:true,maxlength:80})}${field(t('tagline'),'site-tagline',site.tagline,{maxlength:200})}${field(t('description'),'site-description',site.description,{type:'textarea',full:true,maxlength:3000})}${field(t('footer'),'site-footer',site.footer,{maxlength:500})}${field(t('contactEmail'),'site-contact_email',site.contact_email,{type:'email'})}${field(t('announcement'),'site-announcement',site.announcement,{full:true,maxlength:500})}${field(t('announcementURL'),'site-announcement_url',site.announcement_url,{type:'url',full:true,maxlength:2048})}</div></div><div class="config-section"><h2>${escapeHTML(t('languageCurrency'))}</h2><div class="form-grid"><div class="field span-all"><span>${escapeHTML(t('enabledLanguages'))}</span><div class="check-group">${languages.map(value => check(langNames[value],`language-${value}`,activeLanguages.includes(value))).join('')}</div></div>${selectField(t('defaultLanguage'),'site-default_language',languages.map(value => option(value,langNames[value],value === (site.default_language || 'zh-CN'))).join(''))}${selectField(t('defaultCurrency'),'site-currency',currencyOptions(site.currency || 'USD',currencies))}<div class="field span-all"><span>${escapeHTML(t('enabledCurrencies'))}</span><div class="check-group">${currencies.map(value => check(value,`currency-${value}`,activeCurrencies.includes(value))).join('')}</div></div>${languages.map(value => selectField(`${t('localeCurrency')} · ${langNames[value]}`,`locale-currency-${value}`,currencyOptions(languageCurrencies[value] || 'USD',currencies))).join('')}${field(t('presets'),'site-presets',(site.presets || [5,15,50,100]).join(', '),{placeholder:'5, 15, 50, 100',required:true})}</div></div><div class="config-section"><h2>${escapeHTML(t('donorInfo'))}</h2><div class="check-group">${check(t('collectName'),'site-collect_name',site.collect_name)}${check(t('collectEmail'),'site-collect_email',site.collect_email)}${check(t('collectMessage'),'site-collect_message',site.collect_message)}</div></div><div class="config-section"><h2>${escapeHTML(t('terms'))} / ${escapeHTML(t('privacy'))}</h2><div class="form-grid">${field(t('terms'),'site-terms',site.terms,{type:'textarea',rows:6})}${field(t('privacy'),'site-privacy',site.privacy,{type:'textarea',rows:6})}</div></div><div class="config-section"><h2>${escapeHTML(t('translations'))}</h2>${languages.map(value => {const translation = site.translations?.[value] || {}; return `<details class="translation"><summary>${escapeHTML(langNames[value])}</summary><div class="form-grid">${['tagline','description','footer','terms','privacy','announcement'].map(key => field(t(key),`translation-${value}-${key}`,translation[key],{type:['tagline','footer','announcement'].includes(key) ? 'text' : 'textarea',full:key === 'description',maxlength:key === 'announcement' ? 500 : ''})).join('')}</div></details>`;}).join('')}</div>${saveFooter()}`;
 }
 const configs = {
   waffo:[['merchant_id','merchantId','text'],['private_key','privateKey','textarea'],['environment','environment','environment'],['store_id','storeId','text'],['product_id','productId','text'],['tax_category','taxCategory','tax']],
@@ -266,9 +297,9 @@ function collectSettings() {
   const presets = String(siteData.get('site-presets')).split(',').map(value => Number(value.trim()));
   if (!presets.length || presets.length > 8 || presets.some(value => !Number.isSafeInteger(value) || value <= 0 || value > 1000000)) throw new Error(t('presetInvalid'));
   const site = {...settings.site,languages:selectedLanguages,currencies:selectedCurrencies,default_language:defaultLanguage,currency:defaultCurrency,language_currencies:languageCurrencies,presets,translations:{...settings.site.translations}};
-  for(const key of ['name','tagline','description','footer','contact_email','terms','privacy']) site[key] = String(siteData.get(`site-${key}`) || '').trim();
+  for(const key of ['name','tagline','description','footer','contact_email','terms','privacy','announcement','announcement_url']) site[key] = String(siteData.get(`site-${key}`) || '').trim();
   for(const key of ['collect_name','collect_email','collect_message']) site[key] = siteData.has(`site-${key}`);
-  for(const language of languages) {site.translations[language] = {...site.translations[language]};for(const key of ['tagline','description','footer','terms','privacy']) site.translations[language][key] = String(siteData.get(`translation-${language}-${key}`) || '').trim();}
+  for(const language of languages) {site.translations[language] = {...site.translations[language]};for(const key of ['tagline','description','footer','terms','privacy','announcement']) site.translations[language][key] = String(siteData.get(`translation-${language}-${key}`) || '').trim();}
   const notifications = new FormData($('#notifications-form'));
   const webhook = {...settings.webhook,enabled:notifications.has('webhook-enabled'),url:String(notifications.get('webhook-url') || '').trim(),secret:String(notifications.get('webhook-secret') || '').trim()};
   const smtp = {...settings.smtp,enabled:notifications.has('smtp-enabled'),port:Number(notifications.get('smtp-port'))};
@@ -288,7 +319,7 @@ async function saveSettings() {
 }
 function renderManual() {
   const currency = settings.site.currency || 'USD';
-  $('#manual-form').innerHTML = `${field(t('amount'),'manual-amount','',{required:true,placeholder:'15.00'})}${selectField(t('currency'),'manual-currency',currencyOptions(currency))}${selectField(t('method'),'manual-method',option('',t('offline')) + settings.methods.map(value => option(value.id,value.name)).join(''))}${field(t('paidAt'),'manual-paid_at',localDate(),{type:'datetime-local',required:true})}${field(t('donorName'),'manual-name','',{maxlength:100})}${field(t('donorEmail'),'manual-email','',{type:'email'})}${field(t('reference'),'manual-reference','',{full:true,maxlength:200})}${field(t('message'),'manual-message','',{type:'textarea',full:true,maxlength:2000})}<div class="span-all">${check(t('consentPublic'),'manual-public')}</div><div class="actions span-all"><button type="submit" class="primary">${escapeHTML(t('recordDonation'))}</button></div>`;
+  $('#manual-form').innerHTML = `${field(t('amount'),'manual-amount','',{required:true,placeholder:'15.00'})}${selectField(t('currency'),'manual-currency',currencyOptions(currency))}${selectField(t('projectOptional'),'manual-project',projectOptions('',{activeOnly:true}),{full:true})}${selectField(t('method'),'manual-method',option('',t('offline')) + settings.methods.map(value => option(value.id,value.name)).join(''))}${field(t('paidAt'),'manual-paid_at',localDate(),{type:'datetime-local',required:true})}${field(t('donorName'),'manual-name','',{maxlength:100})}${field(t('donorEmail'),'manual-email','',{type:'email'})}${field(t('reference'),'manual-reference','',{full:true,maxlength:200})}${field(t('message'),'manual-message','',{type:'textarea',full:true,maxlength:2000})}<div class="span-all">${check(t('consentPublic'),'manual-public')}${check(t('allowThanks'),'manual-public_thanks')}</div><div class="actions span-all"><button type="submit" class="primary">${escapeHTML(t('recordDonation'))}</button></div>`;
   $('[name="manual-amount"]').inputMode = 'decimal';
 }
 async function loadLedger() {
@@ -304,8 +335,9 @@ async function loadLedger() {
   $('#ledger-next').disabled = ledgerOffset + pageSize >= ledgerTotal;
   $('#ledger-page').textContent = `${Math.floor(ledgerOffset / pageSize) + 1} / ${Math.max(1,Math.ceil(ledgerTotal / pageSize))}`;
   $('#ledger-list').innerHTML = data.donations?.length ? data.donations.map(donation => {
-    const canConfirm = donation.status === 'pending' && (donation.method_type === 'custom' || donation.custom || settings.methods.find(method => method.id === donation.method_id)?.type === 'custom');
-    return `<article class="donation-row"><div><div class="donation-main"><span class="donation-amount">${escapeHTML(money(donation.amount_minor,donation.currency))}</span><span class="donation-name">${escapeHTML(donation.name || t('anonymous'))}</span></div><div class="donation-meta"><span>${escapeHTML(donation.method_name || donation.method_id)}</span><time>${escapeHTML(dateTime(donation.paid_at || donation.created_at))}</time><span>${escapeHTML(donation.source)}</span></div>${donation.message ? `<p class="donation-message">${escapeHTML(donation.message)}</p>` : ''}<details class="donation-details"><summary>${escapeHTML(t('details'))}</summary><p>ID: ${escapeHTML(donation.id)}</p>${donation.donor_user_id ? `<p>${escapeHTML(t('account'))}: <code>${escapeHTML(donation.donor_user_id)}</code></p>` : ''}${donation.email ? `<p>Email: ${escapeHTML(donation.email)}</p>` : ''}<p>${escapeHTML(t('consentPublic'))}: ${donation.public ? escapeHTML(t('enabled')) : '—'}</p></details></div><div class="donation-side"><span class="status ${escapeHTML(donation.status)}">${escapeHTML(statusText(donation.status))}</span>${canConfirm ? `<button type="button" class="quiet" data-show-confirm="${escapeHTML(donation.id)}">${escapeHTML(t('confirmPayment'))}</button>` : ''}</div>${canConfirm ? `<form class="confirm-form" data-confirm-id="${escapeHTML(donation.id)}" hidden>${field(t('reference'),`confirm-reference-${donation.id}`,'',{maxlength:200})}${field(t('paidAt'),`confirm-paid-${donation.id}`,localDate(),{type:'datetime-local',required:true})}<button type="submit" class="primary">${escapeHTML(t('confirmFinal'))}</button></form>` : ''}</article>`;
+    const custom = donation.method_type ? donation.method_type === 'custom' : donation.custom || settings.methods.find(method => method.id === donation.method_id)?.type === 'custom';
+    const canConfirm = donation.source === 'checkout' && ['pending','cancelled','expired'].includes(donation.status) && custom;
+    return `<article class="donation-row"><div><div class="donation-main"><span class="donation-amount">${escapeHTML(money(donation.amount_minor,donation.currency))}</span><span class="donation-name">${escapeHTML(donation.name || t('anonymous'))}</span></div><div class="donation-meta"><span>${escapeHTML(donation.method_name || donation.method_id)}</span><time>${escapeHTML(dateTime(donation.paid_at || donation.created_at))}</time><span>${escapeHTML(donation.source)}</span></div>${donation.message ? `<p class="donation-message">${escapeHTML(donation.message)}</p>` : ''}<details class="donation-details"><summary>${escapeHTML(t('details'))}</summary><p>ID: ${escapeHTML(donation.id)}</p>${donation.project_id ? `<p>${escapeHTML(t('projects'))}: <code>${escapeHTML(donation.project_id)}</code></p>` : ''}${donation.donor_user_id ? `<p>${escapeHTML(t('account'))}: <code>${escapeHTML(donation.donor_user_id)}</code></p>` : ''}${donation.email ? `<p>Email: ${escapeHTML(donation.email)}</p>` : ''}<p>${escapeHTML(t('consentPublic'))}: ${donation.public ? escapeHTML(t('enabled')) : '—'}</p><p>${escapeHTML(t('allowThanks'))}: ${escapeHTML(t(donation.public_thanks ? 'yes' : 'no'))}</p></details></div><div class="donation-side"><span class="status ${escapeHTML(donation.status)}">${escapeHTML(statusText(donation.status))}</span>${canConfirm ? `<button type="button" class="quiet" data-show-confirm="${escapeHTML(donation.id)}">${escapeHTML(t('confirmPayment'))}</button>` : ''}</div>${canConfirm ? `<form class="confirm-form" data-confirm-id="${escapeHTML(donation.id)}" hidden>${field(t('reference'),`confirm-reference-${donation.id}`,'',{maxlength:200})}${field(t('paidAt'),`confirm-paid-${donation.id}`,localDate(),{type:'datetime-local',required:true})}<button type="submit" class="primary">${escapeHTML(t('confirmFinal'))}</button></form>` : ''}</article>`;
   }).join('') : `<p class="empty-state">${escapeHTML(t('noDonations'))}</p>`;
 }
 async function loadNotifications() {
@@ -386,17 +418,112 @@ function renderProductForm() {
 function renderProducts() {
   $('#products-list').innerHTML = catalogProducts.length ? catalogProducts.map(product => `<article class="product-row"><div><h3>${escapeHTML(product.name)}</h3><p>${escapeHTML(statusText(product.status))}${product.has_prod_version ? ` · ${escapeHTML(t('production'))}` : ''}${Object.entries(product.prices || {}).map(([currency,price]) => ` / ${escapeHTML(money(price.amount_minor,currency))}`).join('')}</p>${product.description ? `<p>${escapeHTML(product.description)}</p>` : ''}<code>${escapeHTML(product.id)}</code></div><div class="actions"><button type="button" class="quiet" data-edit-product="${escapeHTML(product.id)}">${escapeHTML(t('edit'))}</button><button type="button" class="quiet" data-use-product="${escapeHTML(product.id)}">${escapeHTML(t('useProduct'))}</button>${product.status !== 'inactive' ? `<button type="button" class="danger" data-deactivate-product="${escapeHTML(product.id)}">${escapeHTML(t('deactivate'))}</button>` : ''}</div></article>`).join('') : `<p class="empty-state">${escapeHTML(t('noProducts'))}</p>`;
 }
+function projectOptions(selected = '', {activeOnly = false} = {}) {
+  return option('',t('allProjects'),!selected) + adminProjects.filter(project => !activeOnly || project.active).map(project => option(project.id,`${project.name}${project.active ? '' : ` · ${t('projectArchived')}`}`,project.id === selected)).join('');
+}
+function projectCurrencies(project) {
+  return [...new Set([...(settings.site.currencies?.length ? settings.site.currencies : currencies),...(project?.currency ? [project.currency] : [])])];
+}
+function readProjectDraft() {
+  const data = new FormData($('#project-form'));
+  return {id:String(data.get('project-id') || '').trim(),name:String(data.get('project-name') || '').trim(),url:String(data.get('project-url') || '').trim(),currency:String(data.get('project-currency') || ''),target:String(data.get('project-target') || '').trim(),active:data.has('project-active')};
+}
+function renderProjectForm() {
+  const project = adminProjects.find(value => value.id === editingProjectID);
+  const currency = project?.currency || settings.site.currency || 'USD';
+  const draft = projectDraft || {id:project?.id || '',name:project?.name || '',url:project?.url || '',currency,target:project ? majorAmount(project.target_minor,currency) : '1000',active:project ? project.active : true};
+  $('#project-form').innerHTML = `${field(t('projectName'),'project-name',draft.name,{required:true,maxlength:80})}${field(t('projectID'),'project-id',draft.id,{required:true,readonly:!!editingProjectID,maxlength:64})}${field(t('projectGoal'),'project-target',draft.target,{required:true})}${selectField(t('currency'),'project-currency',currencyOptions(draft.currency,projectCurrencies(project)))}${field(t('projectURL'),'project-url',draft.url,{type:'url',full:true})}<div class="span-all">${check(t('enabled'),'project-active',draft.active)}</div><div class="actions span-all"><button type="submit" class="primary">${escapeHTML(t(editingProjectID ? 'saveProject' : 'createProject'))}</button></div>`;
+  $('[name="project-target"]', $('#project-form')).inputMode = 'decimal';
+  $$('input,select,button', $('#project-form')).forEach(control => {control.disabled = projectMutating;});
+}
+function renderProjects() {
+  $('#projects-list').innerHTML = adminProjects.length ? adminProjects.map(project => {
+    const link = new URL('/',location.origin);link.searchParams.set('project',project.id);
+    return `<article class="product-row" data-project-id="${escapeHTML(project.id)}"><div><h3>${escapeHTML(project.name)}</h3><p>${escapeHTML(t('projectRaised'))} ${escapeHTML(money(project.raised_minor,project.currency))} / ${escapeHTML(t('projectGoal'))} ${escapeHTML(money(project.target_minor,project.currency))} · ${escapeHTML(project.count || 0)} ${escapeHTML(t('records'))}</p><p>${escapeHTML(t(project.active ? 'enabled' : 'projectArchived'))}</p><code>${escapeHTML(project.id)}</code></div><div class="actions"><a class="button quiet" href="${escapeHTML(link.href)}" target="_blank" rel="noopener">${escapeHTML(t('publicSite'))}</a><button type="button" class="quiet" data-edit-project="${escapeHTML(project.id)}"${projectMutating ? ' disabled' : ''}>${escapeHTML(t('edit'))}</button><button type="button" class="quiet" data-project-active="${escapeHTML(project.id)}" data-next-active="${!project.active}"${projectMutating ? ' disabled' : ''}>${escapeHTML(t(project.active ? 'archiveProject' : 'restoreProject'))}</button></div></article>`;
+  }).join('') : `<p class="empty-state">${escapeHTML(t('noProjects'))}</p>`;
+}
+async function loadProjects() {
+  const sequence = ++projectsSequence, status = $('#projects-status');
+  status.textContent = t('loading');status.hidden = false;
+  try {
+    const data = await api('/api/admin/projects');
+    if(sequence !== projectsSequence) return;
+    adminProjects = data.projects || [];
+    status.hidden = true;renderProjects();renderBadgeBuilder();renderManualProjects();
+  } catch(error) {if(sequence === projectsSequence) {status.textContent = error.message;status.hidden = false;}throw error;}
+}
+async function busyProject(button, action) {
+  if(projectMutating) return;
+  projectMutating = true;
+  const controls = $$('#project-form input,#project-form select,#project-form button,#projects-list button,#project-new,#projects-refresh');
+  const states = controls.map(control => [control,control.disabled]);controls.forEach(control => {control.disabled = true;});
+  if(button) button.disabled = false;
+  try {await busy(button,action);} finally {projectMutating = false;states.forEach(([control,disabled]) => {control.disabled = disabled;});renderProjectForm();renderProjects();}
+}
+$('#project-form').addEventListener('input',() => {if(!projectMutating) projectDraft = readProjectDraft();});
+$('#project-form').addEventListener('submit',event => {
+  event.preventDefault();if(projectMutating) return;
+  const draft = readProjectDraft();projectDraft = draft;
+  busyProject($('button[type="submit"]',event.currentTarget),async () => {
+    const body = {name:draft.name,url:draft.url,currency:draft.currency,target_minor:amountMinor(draft.target,draft.currency),active:draft.active};
+    if(!editingProjectID) body.id = draft.id;
+    const result = await idempotentMutation(`/api/admin/projects${editingProjectID ? `/${encodeURIComponent(editingProjectID)}` : ''}`,editingProjectID ? 'PUT' : 'POST',body);
+    editingProjectID = result.id;projectDraft = null;
+    adminProjects = [...adminProjects.filter(value => value.id !== result.id),result];
+    await loadProjects();notify(t('projectSaved'));
+  });
+});
+$('#project-new').addEventListener('click',() => {if(projectMutating) return;editingProjectID = '';projectDraft = null;renderProjectForm();$('[name="project-name"]', $('#project-form')).focus();});
+$('#projects-refresh').addEventListener('click',event => {if(!projectMutating) busy(event.currentTarget,loadProjects);});
+$('#projects-list').addEventListener('click',event => {
+  if(projectMutating) return;
+  const edit = event.target.closest('[data-edit-project]'), active = event.target.closest('[data-project-active]');
+  if(edit) {editingProjectID = edit.dataset.editProject;projectDraft = null;renderProjectForm();$('[name="project-name"]', $('#project-form')).focus();}
+  if(active) {
+    const project = adminProjects.find(value => value.id === active.dataset.projectActive);
+    const nextActive = active.dataset.nextActive === 'true';
+    if(!project || (!nextActive && !confirm(t('projectArchiveConfirm')))) return;
+    busyProject(active,async () => {await idempotentMutation(`/api/admin/projects/${encodeURIComponent(project.id)}`,'PUT',{name:project.name,url:project.url,currency:project.currency,target_minor:project.target_minor,active:nextActive});await loadProjects();notify(t('projectSaved'));});
+  }
+});
+function renderManualProjects() {
+  const select = $('[name="manual-project"]', $('#manual-form'));
+  if(!select) return;
+  const selected = select.value;
+  select.innerHTML = projectOptions(selected,{activeOnly:true});
+  syncManualProjectCurrency();
+}
+function syncManualProjectCurrency() {
+  const select = $('[name="manual-project"]', $('#manual-form')), currency = $('[name="manual-currency"]', $('#manual-form'));
+  if(!select || !currency) return;
+  const project = adminProjects.find(value => value.id === select.value && value.active);
+  if(project) {
+    if(!currency.disabled) currency.dataset.freeCurrency = currency.value;
+    currency.innerHTML = currencyOptions(project.currency,[project.currency]);currency.disabled = true;
+  } else {
+    const enabled = settings.site.currencies || currencies;
+    const selected = currency.dataset.freeCurrency || currency.value;
+    currency.innerHTML = currencyOptions(enabled.includes(selected) ? selected : settings.site.currency,enabled);currency.disabled = false;
+  }
+}
+$('#manual-form').addEventListener('change',event => {if(event.target.name === 'manual-project') syncManualProjectCurrency();if(event.target.name === 'manual-currency' && !event.target.disabled) event.target.dataset.freeCurrency = event.target.value;});
 function badgeIcon(name) {
   return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="${escapeHTML(iconSpriteURL)}#${name}"></use></svg>`;
 }
 function renderBadgeBuilder() {
   const enabled = settings.site.currencies?.length ? settings.site.currencies : [settings.site.currency || 'USD'];
-  badgeState ||= {lang:languages.includes(settings.site.default_language) ? settings.site.default_language : 'en',currency:settings.site.currency || enabled[0],period:'all',layout:'receipt',theme:'dark',width:'480',title:'Donate',amount_label:'',count_label:'',animation:'none'};
-  if(!enabled.includes(badgeState.currency)) badgeState.currency = enabled.includes(settings.site.currency) ? settings.site.currency : enabled[0];
+  badgeState ||= {project:'',lang:languages.includes(settings.site.default_language) ? settings.site.default_language : 'en',currency:settings.site.currency || enabled[0],period:'all',layout:'receipt',theme:'dark',width:'480',title:'Donate',amount_label:'',count_label:'',animation:'none'};
+  const project = adminProjects.find(value => value.id === badgeState.project);
+  if(badgeState.project && !project) badgeState.project = '';
+  if(project) {badgeState.currency = project.currency;badgeState.period = 'all';}
+  else if(!enabled.includes(badgeState.currency)) badgeState.currency = enabled.includes(settings.site.currency) ? settings.site.currency : enabled[0];
   const state = badgeState;
-  $('#badge-form').innerHTML = `${selectField(t('badgeLanguage'),'lang',languages.map(value => option(value,langNames[value],state.lang === value)).join(''))}${selectField(t('currency'),'currency',currencyOptions(state.currency,enabled))}${selectField(t('badgePeriod'),'period',['all','7d','30d','year'].map(value => option(value,t({all:'badgeAll','7d':'badge7d','30d':'badge30d',year:'badgeYear'}[value]),state.period === value)).join(''))}${selectField(t('badgeLayout'),'layout',['receipt','compact'].map(value => option(value,t(value === 'receipt' ? 'badgeReceipt' : 'badgeCompact'),state.layout === value)).join(''))}${selectField(t('badgeTheme'),'theme',['dark','light','transparent'].map(value => option(value,t({dark:'badgeDark',light:'badgeLight',transparent:'badgeTransparent'}[value]),state.theme === value)).join(''))}${selectField(t('badgeAnimation'),'animation',option('none',t('badgeNone'),state.animation === 'none') + option('steam',t('badgeSteam'),state.animation === 'steam'))}${field(t('badgeWidth'),'width',state.width,{type:'number',required:true})}${field(t('badgeTitle'),'title',state.title,{maxlength:40})}${field(t('badgeAmountLabel'),'amount_label',state.amount_label,{maxlength:24,placeholder:t('badgeDefault')})}${field(t('badgeCountLabel'),'count_label',state.count_label,{maxlength:24,placeholder:t('badgeDefault')})}`;
+  const selectedCurrencies = project ? [project.currency] : enabled;
+  $('#badge-form').innerHTML = `${selectField(t('projects'),'project',projectOptions(state.project),{full:true})}${selectField(t('badgeLanguage'),'lang',languages.map(value => option(value,langNames[value],state.lang === value)).join(''))}${selectField(t('currency'),'currency',currencyOptions(state.currency,selectedCurrencies))}${selectField(t('badgePeriod'),'period',['all','7d','30d','year'].map(value => option(value,t({all:'badgeAll','7d':'badge7d','30d':'badge30d',year:'badgeYear'}[value]),state.period === value)).join(''))}${selectField(t('badgeLayout'),'layout',['receipt','compact'].map(value => option(value,t(value === 'receipt' ? 'badgeReceipt' : 'badgeCompact'),state.layout === value)).join(''))}${selectField(t('badgeTheme'),'theme',['dark','light','transparent'].map(value => option(value,t({dark:'badgeDark',light:'badgeLight',transparent:'badgeTransparent'}[value]),state.theme === value)).join(''))}${selectField(t('badgeAnimation'),'animation',option('none',t('badgeNone'),state.animation === 'none') + option('steam',t('badgeSteam'),state.animation === 'steam'))}${field(t('badgeWidth'),'width',state.width,{type:'number',required:true})}${field(t('badgeTitle'),'title',state.title,{maxlength:40,placeholder:project?.name || 'Donate'})}${field(t('badgeAmountLabel'),'amount_label',state.amount_label,{maxlength:24,placeholder:t('badgeDefault')})}${field(t('badgeCountLabel'),'count_label',state.count_label,{maxlength:24,placeholder:t('badgeDefault')})}`;
   const width = $('[name="width"]', $('#badge-form'));
   width.min = '240';width.max = '1200';width.step = '1';
+  $('[name="currency"]', $('#badge-form')).disabled = !!project;
+  $('[name="period"]', $('#badge-form')).disabled = !!project;
   $$('[data-badge-copy]').forEach(button => {
     const label = {readme:'README',html:'HTML',url:'SVG URL'}[button.dataset.badgeCopy];
     button.innerHTML = `${badgeIcon('copy')}<span>${label}</span>`;
@@ -406,10 +533,25 @@ function renderBadgeBuilder() {
   updateBadgePreview();
 }
 function readBadgeState() {
-  return Object.fromEntries([...new FormData($('#badge-form'))].map(([key,value]) => [key,String(value).trim()]));
+  const form = $('#badge-form');
+  const state = Object.fromEntries([...new FormData(form)].map(([key,value]) => [key,String(value).trim()]));
+  state.currency = $('[name="currency"]',form).value;
+  state.period = $('[name="period"]',form).value;
+  return state;
+}
+function changeBadgeProject() {
+  const next = readBadgeState(), previous = badgeState.project || '';
+  if(next.project && !previous) {
+    badgeGenericState = {currency:badgeState.currency,period:badgeState.period,title:badgeState.title};
+    if(!next.title || next.title === 'Donate') next.title = '';
+  } else if(!next.project && previous && badgeGenericState) Object.assign(next,badgeGenericState);
+  badgeState = next;renderBadgeBuilder();
 }
 function badgeCode(format = badgeFormat) {
-  const home = `${location.origin}/`;
+  const homeURL = new URL('/',location.origin);
+  const project = new URL(badgeURL).searchParams.get('project');
+  if(project) homeURL.searchParams.set('project',project);
+  const home = homeURL.href;
   if(format === 'url') return badgeURL;
   if(format === 'html') return `<a href="${escapeHTML(home)}"><img src="${escapeHTML(badgeURL)}" alt="Donate"></a>`;
   return `[![Donate](${badgeURL})](${home})`;
@@ -422,6 +564,8 @@ function updateBadgePreview() {
   clearTimeout(badgePreviewTimer);
   if(!badgeState) return;
   const state = readBadgeState();
+  const project = adminProjects.find(value => value.id === state.project);
+  if(project) {state.currency = project.currency;state.period = 'all';}
   badgeState = state;
   const width = Number(state.width);
   const invalidText = [state.title,state.amount_label,state.count_label].some(value => /[\p{Cc}\p{Cf}]/u.test(value));
@@ -434,18 +578,20 @@ function updateBadgePreview() {
     updateBadgeCode();return;
   }
   const url = new URL('/badge.svg', location.origin);
-  for(const key of ['lang','currency','period','layout','theme','width','title','amount_label','count_label','animation']) if(state[key]) url.searchParams.set(key,state[key]);
+  if(project) url.searchParams.set('project',project.id);
+  for(const key of ['lang','currency','period','layout','theme','width','title','amount_label','count_label','animation']) if(state[key] && (!project || (key !== 'currency' && key !== 'period'))) url.searchParams.set(key,state[key]);
   badgeURL = url.href;
   status.hidden = true;
   $('#badge-preview-frame').dataset.theme = state.theme;
   image.width = width;
   image.hidden = false;
   if(image.src !== badgeURL) image.src = badgeURL;
-  download.href = badgeURL;download.download = `donate-${state.currency}-${state.period}.svg`;
+  download.href = badgeURL;download.download = project ? `donate-${project.id}.svg` : `donate-${state.currency}-${state.period}.svg`;
   download.removeAttribute('aria-disabled');download.removeAttribute('tabindex');
   updateBadgeCode();
 }
-$('#badge-form').addEventListener('input',() => {
+$('#badge-form').addEventListener('input',event => {
+  if(event.target.name === 'project') {changeBadgeProject();return;}
   badgeState = readBadgeState();clearTimeout(badgePreviewTimer);badgePreviewTimer = setTimeout(updateBadgePreview,180);
 });
 $('#badge-form').addEventListener('submit',event => {event.preventDefault();updateBadgePreview();});
@@ -495,6 +641,7 @@ async function showView(view) {
   if(view === 'notifications') await loadNotifications();
   if(view === 'api') await loadStats();
   if(view === 'badges') updateBadgePreview();
+  if(view === 'projects') await loadProjects();
 }
 
 $('#password-form').addEventListener('submit',event => {
@@ -526,7 +673,7 @@ $('#methods-form').addEventListener('change',event => {
   const input = event.target, file = input.files?.[0], methodId = settings.methods[Number(input.dataset.uploadIndex)]?.id;if(!file || !methodId) return;
   busy(null,async () => {if(!['image/png','image/jpeg','image/webp'].includes(file.type) || file.size > 2 * 1024 * 1024) throw new Error(t('uploadInvalid'));input.disabled = true;uploadsInFlight++;$('#add-method').disabled = true;$$('[data-remove-method]').forEach(button => {button.disabled = true;});try {const data = new FormData();data.append('file',file);const uploaded = await api('/api/admin/upload',{method:'POST',body:data});const index = settings.methods.findIndex(method => method.id === methodId);if(index < 0) return;$(`[name="method-${index}-qr_url"]`).value = uploaded.url;markDirty();settings.methods = collectMethods();renderMethods();} finally {uploadsInFlight--;input.disabled = false;$('#add-method').disabled = !!uploadsInFlight;$$('[data-remove-method]').forEach(button => {button.disabled = !!uploadsInFlight;});}});
 });
-$('#manual-form').addEventListener('submit',event => {event.preventDefault();const form = event.currentTarget;busy($('button[type="submit"]',form),async () => {const data = new FormData(form), currency = data.get('manual-currency'), method = settings.methods.find(value => value.id === data.get('manual-method'));await idempotentMutation('/api/admin/donations','POST',{amount_minor:amountMinor(data.get('manual-amount'),currency),currency,method_id:method?.id || '',method_name:method?.name || t('offline'),name:data.get('manual-name'),email:data.get('manual-email'),message:data.get('manual-message'),public:data.has('manual-public'),paid_at:isoDate(data.get('manual-paid_at')),reference:data.get('manual-reference')});renderManual();ledgerOffset = 0;notify(t('manualRecorded'));try {await loadLedger();} catch(error) {notify(`${t('manualRecorded')} ${error.message}`,true);}});});
+$('#manual-form').addEventListener('submit',event => {event.preventDefault();const form = event.currentTarget;busy($('button[type="submit"]',form),async () => {const data = new FormData(form), project = adminProjects.find(value => value.id === data.get('manual-project') && value.active), currency = project?.currency || data.get('manual-currency'), method = settings.methods.find(value => value.id === data.get('manual-method'));await idempotentMutation('/api/admin/donations','POST',{amount_minor:amountMinor(data.get('manual-amount'),currency),currency,project_id:project?.id || '',method_id:method?.id || '',method_name:method?.name || t('offline'),name:data.get('manual-name'),email:data.get('manual-email'),message:data.get('manual-message'),public:data.has('manual-public'),public_thanks:data.has('manual-public_thanks'),paid_at:isoDate(data.get('manual-paid_at')),reference:data.get('manual-reference')});renderManual();ledgerOffset = 0;notify(t('manualRecorded'));try {await loadLedger();} catch(error) {notify(`${t('manualRecorded')} ${error.message}`,true);}});});
 $('#ledger-status').addEventListener('change',() => {ledgerOffset = 0;busy(null,loadLedger);});
 $('#ledger-refresh').addEventListener('click',event => busy(event.currentTarget,loadLedger));
 $('#ledger-prev').addEventListener('click',event => {ledgerOffset = Math.max(0,ledgerOffset - pageSize);busy(event.currentTarget,loadLedger);});

@@ -107,8 +107,8 @@ func (m *Manager) Session(w http.ResponseWriter, r *http.Request) {
 }
 
 func (m *Manager) writeSession(w http.ResponseWriter, r *http.Request, s session) {
-	var count int
-	if err := m.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM donor_credentials WHERE user_id=?", s.user.ID).Scan(&count); err != nil {
+	count, err := m.passkeyCount(r.Context(), s.user.ID, nil)
+	if err != nil {
 		fail(w, http.StatusInternalServerError, "无法读取登录状态")
 		return
 	}
@@ -137,7 +137,12 @@ func (m *Manager) RegisterBegin(w http.ResponseWriter, r *http.Request) {
 			authFailed(w)
 			return
 		}
-		if len(u.credentials) >= maxPasskeys {
+		count, countErr := m.passkeyCount(r.Context(), u.ID, nil)
+		if countErr != nil {
+			fail(w, http.StatusInternalServerError, "无法读取 Passkey")
+			return
+		}
+		if count >= maxPasskeys {
 			fail(w, http.StatusConflict, "最多绑定 10 个 Passkey")
 			return
 		}
@@ -252,12 +257,21 @@ func (m *Manager) acceptRegistration(r *http.Request, previous session, user Use
 			return session{}, "", ErrUnauthorized
 		}
 	}
-	var count int
-	if err = tx.QueryRow("SELECT COUNT(*) FROM donor_credentials WHERE user_id=?", user.ID).Scan(&count); err != nil {
+	count, err := m.passkeyCount(r.Context(), user.ID, tx)
+	if err != nil {
 		return session{}, "", err
 	}
 	if count >= maxPasskeys {
 		return session{}, "", ErrUnauthorized
+	}
+	if m.administrator != nil {
+		used, checkErr := m.administrator.DonorPasskeyIDInUse(r.Context(), tx, credential.ID)
+		if checkErr != nil {
+			return session{}, "", checkErr
+		}
+		if used {
+			return session{}, "", ErrUnauthorized
+		}
 	}
 	if _, err = tx.Exec("INSERT INTO donor_credentials(id,user_id,data) VALUES(?,?,?)", base64.RawURLEncoding.EncodeToString(credential.ID), user.ID, raw); err != nil {
 		return session{}, "", err
@@ -309,28 +323,53 @@ func (m *Manager) LoginFinish(w http.ResponseWriter, r *http.Request) {
 		authFailed(w)
 		return
 	}
+	bridged := false
 	handler := func(rawID, userHandle []byte) (webauthn.User, error) {
 		if len(userHandle) != 32 {
 			return nil, ErrUnauthorized
 		}
 		id := base64.RawURLEncoding.EncodeToString(userHandle)
 		var owner string
-		if err := m.db.QueryRowContext(r.Context(), "SELECT user_id FROM donor_credentials WHERE id=?", base64.RawURLEncoding.EncodeToString(rawID)).Scan(&owner); err != nil || owner != id {
-			return nil, ErrUnauthorized
+		err := m.db.QueryRowContext(r.Context(), "SELECT user_id FROM donor_credentials WHERE id=?", base64.RawURLEncoding.EncodeToString(rawID)).Scan(&owner)
+		if err == nil && owner == id {
+			return m.loadUser(r.Context(), id)
 		}
-		return m.loadUser(r.Context(), id)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+		if m.administrator != nil {
+			principal, lookupErr := m.administrator.LookupDonorPasskey(r.Context(), rawID, userHandle)
+			if lookupErr == nil {
+				bridged = true
+			}
+			return principal, lookupErr
+		}
+		return nil, ErrUnauthorized
 	}
 	u, credential, err := m.wa.FinishPasskeyLogin(handler, c.data, r)
-	if err != nil || credential.Authenticator.CloneWarning || !credential.Flags.UserVerified {
+	if err != nil || !credential.Flags.UserVerified {
 		authFailed(w)
 		return
 	}
-	user, ok := u.(passkeyUser)
-	if !ok {
+	if credential.Authenticator.CloneWarning {
+		if bridged {
+			_ = m.administrator.QuarantineDonorPasskey(r.Context(), u, credential)
+		}
 		authFailed(w)
 		return
 	}
-	full, token, err := m.acceptLogin(r, s, user.User, credential)
+	var full session
+	var token string
+	if bridged {
+		full, token, err = m.acceptAdministratorLogin(r, s, u, credential)
+	} else {
+		user, ok := u.(passkeyUser)
+		if !ok {
+			authFailed(w)
+			return
+		}
+		full, token, err = m.acceptLogin(r, s, user.User, credential)
+	}
 	if err != nil {
 		authFailed(w)
 		return
