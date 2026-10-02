@@ -162,6 +162,14 @@ function deferred() {
   const promise = new Promise(done => {resolve=done;});
   return {promise,resolve};
 }
+async function waitForSignal(signal, description) {
+  let timer;
+  try {
+    await Promise.race([signal.promise,new Promise((_,reject) => {
+      timer=setTimeout(() => reject(new Error(`Timed out waiting for ${description}`)),15_000);
+    })]);
+  } finally {clearTimeout(timer);}
+}
 async function donorLifecycleScenarios() {
   const context = await browser.newContext({locale:'en-US',viewport:{width:1440,height:1050}});
   const page = await context.newPage();
@@ -233,7 +241,7 @@ async function donorLifecycleScenarios() {
   try {
     await step('Delayed expired session finishes before genuine Passkey signup; concurrent session reads are shared',async () => {
       await page.goto(base);
-      await startupSeen.promise;
+      await waitForSignal(startupSeen,'the delayed startup session');
       await visible(page,'#presets button');
       await openDonor(page);
       await page.locator('#donor-register').click();
@@ -258,12 +266,12 @@ async function donorLifecycleScenarios() {
     await step('Closing and reopening during real backup enrollment sends no session or history reads until finish settles',async () => {
       holdHistory=true;
       await openDonor(page);
-      await oldHistorySeen.promise;
+      await waitForSignal(oldHistorySeen,'the old session history request');
       await device.cdp.send('WebAuthn.removeVirtualAuthenticator',{authenticatorId:device.authenticatorId});
       device=await addAuthenticator(page);
       holdFinish=true;
       await page.locator('#donor-add-passkey').click();
-      await finishSeen.promise;
+      await waitForSignal(finishSeen,'the real backup registration finish');
       const before={sessionRequests,historyRequests};
       assert.equal(await page.locator('#donate-button').isDisabled(),true);
       await closeDonor(page);
@@ -273,7 +281,7 @@ async function donorLifecycleScenarios() {
       const finished=page.waitForResponse(response => response.url()===`${base}/api/donor/register/finish`);
       finishRelease.resolve();
       assert.equal((await finished).status(),200,'The real backup registration must finish even after the dialog closes');
-      await newHistorySeen.promise;
+      await waitForSignal(newHistorySeen,'history reconciliation after backup registration');
       await page.waitForFunction(() => !document.querySelector('#donate-button').disabled);
       assert.equal(await page.locator('#donor-add-passkey').isDisabled(),false,'Slow history must not lock account actions after registration');
       const after=await donorState(context);
