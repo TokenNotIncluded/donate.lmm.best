@@ -37,8 +37,14 @@ function translateStatic() {
   document.documentElement.lang = locale;
   $('#admin-language').value = locale;
   $$('[data-i18n]').forEach(element => { element.textContent = t(element.dataset.i18n); });
-  document.title = `${settings?.site?.name || 'TOKEN'} · ${t('controlRoom')}`;
+  updateBrand();
   updateHeaderContext();
+}
+function updateBrand() {
+  const name = settings?.site?.name || '留一点燃料';
+  $('#brand-name').textContent = name;
+  $('.brand').setAttribute('aria-label', `${name} · ${t('publicSite')}`);
+  document.title = `${name} · ${t('controlRoom')}`;
 }
 function updateHeaderContext() {
   const label = t({ledger:'ledger',site:'siteSettings',payments:'paymentMethods',catalog:'waffoProducts',notifications:'notifications',api:'statsSecurity'}[currentView] || 'ledger');
@@ -175,7 +181,6 @@ async function loadAdmin() {
   settings.methods ||= [];
   settings.webhook ||= {};
   settings.smtp ||= {};
-  $('#brand-name').textContent = settings.site.name || 'TOKEN';
   renderSettings();
   renderManual();
   renderCatalogMethods();
@@ -241,7 +246,7 @@ async function saveSettings() {
   dirty = false;
   renderSettings();renderManual();renderCatalogMethods();renderSecurity();
   if(identityChanged) renderProductForm();
-  $('#brand-name').textContent = settings.site.name;
+  updateBrand();
   notify(t('saved'));
 }
 function renderManual() {
@@ -339,7 +344,7 @@ function renderProductForm() {
   const defaultMinor = Math.max(range[0],Math.min(range[1],(settings.site.presets?.[0] || 5) * (priceCurrency === 'JPY' ? 1 : 100)));
   const startingAmount = price ? majorAmount(price.amount_minor,priceCurrency) : majorAmount(defaultMinor,priceCurrency);
   const priceHelp = `${t('startingPriceHelp')} ${money(range[0],priceCurrency)} – ${money(range[1],priceCurrency)}`;
-  $('#product-form').innerHTML = `<div class="product-editor"><h2>${escapeHTML(t(product ? 'editProduct' : 'createProduct'))}</h2><div class="form-grid">${field(t('productName'),'product-name',product?.name || settings.site.name || 'TOKEN',{required:true,maxlength:64})}${selectField(t('currency'),'product-currency',currencyOptions(priceCurrency || 'USD',available))}${field(t('description'),'product-description',product?.description || settings.site.description || '',{type:'textarea',full:true,maxlength:3000})}${field(t('startingPrice'),'product-amount',startingAmount,{required:true,help:priceHelp})}${selectField(t('taxCategory'),'product-tax_category',taxOptions(price?.tax_category || selectedMethod?.config?.tax_category),{required:true})}${product ? selectField(t('productStatus'),'product-status',option('active',t('active'),product.status !== 'inactive') + option('inactive',t('inactive'),product.status === 'inactive')) : `<div class="span-all">${check(t('selectCreated'),'product-select',true)}</div>`}<div class="span-all">${check(t('publishFirst'),'product-publish')}<p class="help">${escapeHTML(t('publishHelp'))}</p></div><div class="actions span-all"><button type="submit" class="primary">${escapeHTML(t(product ? 'reactivation' : 'createProduct'))}</button>${product ? `<button type="button" id="cancel-product" class="quiet">${escapeHTML(t(createdProductShown ? 'createAnother' : 'cancel'))}</button>` : ''}</div></div></div>`;
+  $('#product-form').innerHTML = `<div class="product-editor"><h2>${escapeHTML(t(product ? 'editProduct' : 'createProduct'))}</h2><div class="form-grid">${field(t('productName'),'product-name',product?.name || settings.site.name || '留一点燃料',{required:true,maxlength:64})}${selectField(t('currency'),'product-currency',currencyOptions(priceCurrency || 'USD',available))}${field(t('description'),'product-description',product?.description || settings.site.description || '',{type:'textarea',full:true,maxlength:3000})}${field(t('startingPrice'),'product-amount',startingAmount,{required:true,help:priceHelp})}${selectField(t('taxCategory'),'product-tax_category',taxOptions(price?.tax_category || selectedMethod?.config?.tax_category),{required:true})}${product ? selectField(t('productStatus'),'product-status',option('active',t('active'),product.status !== 'inactive') + option('inactive',t('inactive'),product.status === 'inactive')) : `<div class="span-all">${check(t('selectCreated'),'product-select',true)}</div>`}<div class="span-all">${check(t('publishFirst'),'product-publish')}<p class="help">${escapeHTML(t('publishHelp'))}</p></div><div class="actions span-all"><button type="submit" class="primary">${escapeHTML(t(product ? 'reactivation' : 'createProduct'))}</button>${product ? `<button type="button" id="cancel-product" class="quiet">${escapeHTML(t(createdProductShown ? 'createAnother' : 'cancel'))}</button>` : ''}</div></div></div>`;
   $('[name="product-amount"]').inputMode = 'decimal';
 }
 function renderProducts() {

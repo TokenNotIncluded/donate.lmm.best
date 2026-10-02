@@ -1,4 +1,4 @@
-# TOKEN visual direction
+# 留一点燃料 visual direction
 
 The user pinned ASCII art plus an interactive token cloud and approved the proposed independent-creator / terminal cultural direction. That pinned direction takes priority over the concept seed assignment (e148a1dd). No alternative identity or image mockup is needed to implement character art.
 

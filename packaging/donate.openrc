@@ -1,7 +1,7 @@
 #!/sbin/openrc-run
 # shellcheck shell=sh
 # shellcheck disable=SC2034
-name="TOKEN donation site"
+name="Self-hosted donation site"
 description="Donation site with passkeys and SQLite"
 command="/usr/bin/donate"
 command_args="serve"

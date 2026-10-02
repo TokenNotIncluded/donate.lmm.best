@@ -1,5 +1,5 @@
 [Unit]
-Description=TOKEN donation site
+Description=Self-hosted donation site
 Documentation=https://github.com/TokenNotIncluded/donate.lmm.best
 After=network-online.target
 Wants=network-online.target

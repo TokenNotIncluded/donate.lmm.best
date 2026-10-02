@@ -240,7 +240,7 @@ func sendWebhook(ctx context.Context, deliveryID string, body []byte, cfg Webhoo
 	mac := hmac.New(sha256.New, []byte(cfg.Secret))
 	_, _ = mac.Write(body)
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("User-Agent", "TOKEN-Donate/1")
+	request.Header.Set("User-Agent", "Donate/1")
 	request.Header.Set("X-Donate-Signature", "sha256="+hex.EncodeToString(mac.Sum(nil)))
 	request.Header.Set("X-Donate-Event", event.Type)
 	request.Header.Set("X-Donate-Delivery", deliveryID)
@@ -368,7 +368,7 @@ func sendSMTPMessage(client *smtp.Client, body []byte, event Event, cfg SMTPConf
 		return errors.New("SMTP message was rejected")
 	}
 	message := "From: " + from.String() + "\r\nTo: " + to.String() + "\r\n" +
-		"Subject: " + mime.QEncoding.Encode("UTF-8", "TOKEN donation: "+event.Type) + "\r\n" +
+		"Subject: " + mime.QEncoding.Encode("UTF-8", "Donation: "+event.Type) + "\r\n" +
 		"MIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n" +
 		"Content-Transfer-Encoding: 8bit\r\n\r\nA donation event was recorded.\r\n\r\n" +
 		strings.ReplaceAll(string(body), "\n", "\r\n") + "\r\n"

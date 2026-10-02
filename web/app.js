@@ -79,8 +79,8 @@ function applyLanguage() {
   if($('#checkout-qr')) $('#checkout-qr').alt = t('qrAlt');
   $('#scene').setAttribute('aria-label',locale==='en' ? 'Interactive ASCII orbital sculpture' : locale==='zh-TW' ? '可互動的 ASCII 軌道雕塑' : '可互动的 ASCII 轨道雕塑');
   $('.token-cloud').setAttribute('aria-label',locale==='en' ? 'Interactive token cloud' : locale==='zh-TW' ? '互動字元雲' : '互动字符云');
-  $('#site-name').textContent = site?.name || 'TOKEN';
-  $('#logo').setAttribute('aria-label',site?.name || 'TOKEN');
+  $('#site-name').textContent = site?.name || '留一点燃料';
+  $('#logo').setAttribute('aria-label',site?.name || '留一点燃料');
   const tagline = localText('tagline', t('fallbackTagline'));
   const defaultTaglines = ['留一点燃料','留一點燃料','Leave a little fuel','留一点燃料。','留一點燃料。','Leave a little fuel.','Keep the good things running.'];
   $('#invitation-title').replaceChildren();
@@ -96,7 +96,7 @@ function applyLanguage() {
   setMultiline($('#site-description'),localText('description',t('fallbackDescription')));
   $('#site-tagline').textContent=tagline;
   $('#site-footer-text').textContent=localText('footer',t('fallbackFooter'));
-  document.title=`${site?.name || 'TOKEN'} — ${tagline}`;
+  document.title=site?.name || '留一点燃料';
   document.querySelector('meta[name=description]').content=localText('description',t('fallbackDescription')).replaceAll('\n',' ');
   updateMotionControl();
   if(submissionBusy) $('#donate-button span').textContent=t('donating');

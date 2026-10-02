@@ -60,7 +60,7 @@ type adminUser struct {
 
 func (u adminUser) WebAuthnID() []byte                         { return u.id }
 func (u adminUser) WebAuthnName() string                       { return "admin" }
-func (u adminUser) WebAuthnDisplayName() string                { return "TOKEN administrator" }
+func (u adminUser) WebAuthnDisplayName() string                { return "Donation administrator" }
 func (u adminUser) WebAuthnCredentials() []webauthn.Credential { return u.credentials }
 
 type state struct {
@@ -101,7 +101,7 @@ func New(db *sql.DB, dataDir, publicURL string) (*Manager, error) {
 	}
 	origin := u.Scheme + "://" + strings.ToLower(u.Host)
 	wa, err := webauthn.New(&webauthn.Config{
-		RPID: hostname, RPDisplayName: "TOKEN", RPOrigins: []string{origin},
+		RPID: hostname, RPDisplayName: "留一点燃料", RPOrigins: []string{origin},
 		AttestationPreference:  protocol.PreferNoAttestation,
 		AuthenticatorSelection: protocol.AuthenticatorSelection{RequireResidentKey: protocol.ResidentKeyRequired(), ResidentKey: protocol.ResidentKeyRequirementRequired, UserVerification: protocol.VerificationRequired},
 		Timeouts: webauthn.TimeoutsConfig{

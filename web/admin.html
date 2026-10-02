@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
   <meta name="robots" content="noindex, nofollow">
-  <title>TOKEN · 控制室</title>
+  <title>留一点燃料 · 控制室</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/admin.css">
   <script type="module" src="/admin.js"></script>
@@ -13,7 +13,7 @@
 <body>
   <a class="skip-link" href="#main">跳到内容 / Skip to content</a>
   <header class="topbar">
-    <div class="brand-area"><a class="brand" href="/" aria-label="TOKEN home"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><path class="mark-orbit" d="M5 23c-3-4 0-10 7-14s14-5 16-1-1 10-8 14S7 27 5 23Z"/><path class="mark-letter" d="M10 11h12M16 11v13M10 9v4M22 9v4"/></svg></span><span id="brand-name">TOKEN</span><span class="brand-dot" aria-hidden="true">.</span></a><span class="header-context" id="header-context" hidden></span></div>
+    <div class="brand-area"><a class="brand" href="/" aria-label="留一点燃料首页"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><path class="mark-orbit" d="M5 23c-3-4 0-10 7-14s14-5 16-1-1 10-8 14S7 27 5 23Z"/><path class="mark-letter" d="M16 8v16M8 16h16"/></svg></span><span id="brand-name">留一点燃料</span><span class="brand-dot" aria-hidden="true">.</span></a><span class="header-context" id="header-context" hidden></span></div>
     <div class="header-actions">
       <label class="visually-hidden" for="admin-language">语言 / Language</label>
       <select id="admin-language" aria-label="语言 / Language"><option value="zh-CN">简体中文</option><option value="zh-TW">繁體中文</option><option value="en">English</option></select>
@@ -31,7 +31,7 @@
         <pre class="auth-art" aria-hidden="true">       .     +        .
     .      / \       *
           / * \
-     ----( TOKEN )----
+     ----(   +   )----
           \ * /
     +      \ /      .
        .           +</pre>
@@ -56,6 +56,7 @@
     </section>
     <div id="admin-view" class="admin-layout" hidden>
       <aside class="sidebar">
+        <div class="sidebar-body">
         <nav id="admin-nav" aria-label="管理后台 / Administration">
           <div class="nav-group"><button type="button" data-view="ledger" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Z M9 8h6M9 12h4"/></svg><span data-i18n="ledger">捐款记录</span></button></div>
           <div class="nav-group"><button type="button" data-view="site"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4Z M4 9h16M7 7h.1M10 7h.1M8 13h8M8 16h5"/></svg><span data-i18n="siteSettings">网站与文字</span></button>
@@ -66,6 +67,7 @@
         </nav>
         <p class="sidebar-note" data-i18n="confirmedOnly">统计只计算已确认的捐款。</p>
         <span class="session-label" data-i18n="passkeySession">Passkey 会话</span>
+        </div>
       </aside>
       <div class="workspace">
         <section id="view-ledger" class="view" aria-labelledby="ledger-title">
@@ -83,6 +85,6 @@
       </div>
     </div>
   </main>
-  <footer class="admin-footer"><span>TOKEN / CONTROL ROOM</span><span data-i18n="ownerOnly">仅管理员可访问</span></footer>
+  <footer class="admin-footer"><span>留一点燃料 / CONTROL ROOM</span><span data-i18n="ownerOnly">仅管理员可访问</span></footer>
 </body>
 </html>
