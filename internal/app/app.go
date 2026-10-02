@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/TokenNotIncluded/donate.lmm.best/internal/auth"
+	"github.com/TokenNotIncluded/donate.lmm.best/internal/donors"
 	"github.com/TokenNotIncluded/donate.lmm.best/internal/notify"
 	"github.com/TokenNotIncluded/donate.lmm.best/internal/payments"
 	_ "modernc.org/sqlite"
@@ -32,6 +33,7 @@ import (
 type App struct {
 	DB                 *sql.DB
 	Auth               *auth.Manager
+	Donors             *donors.Manager
 	Notify             *notify.Service
 	Payments           *payments.Service
 	DataDir, PublicURL string
@@ -65,6 +67,20 @@ func digest(s string) string { v := sha256.Sum256([]byte(s)); return hex.EncodeT
 var idPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,80}$`)
 
 func validID(s string) bool { return idPattern.MatchString(s) }
+
+// Browsers serialize an origin without the scheme's default port. Preserve
+// explicit non-default ports, since they identify a different security origin.
+func normalizedPublicOrigin(u *url.URL) string {
+	host := strings.ToLower(u.Host)
+	if u.Scheme == "https" && u.Port() == "443" || u.Scheme == "http" && u.Port() == "80" {
+		host = strings.ToLower(u.Hostname())
+		if strings.Contains(host, ":") {
+			host = "[" + host + "]"
+		}
+	}
+	return (&url.URL{Scheme: u.Scheme, Host: host}).String()
+}
+
 func New(dataDir, publicURL string, assets fs.FS) (*App, error) {
 	u, e := url.Parse(publicURL)
 	if e != nil || u.Hostname() == "" || u.User != nil || u.Path != "" && u.Path != "/" || u.RawQuery != "" || u.Fragment != "" {
@@ -97,7 +113,7 @@ func New(dataDir, publicURL string, assets fs.FS) (*App, error) {
 		return nil, e
 	}
 	db.SetMaxOpenConns(1)
-	a := &App{DB: db, DataDir: dataDir, PublicURL: u.Scheme + "://" + strings.ToLower(u.Host), assets: assets, Payments: payments.New(), limits: map[string]limit{}, keys: map[string]*keyLock{}}
+	a := &App{DB: db, DataDir: dataDir, PublicURL: normalizedPublicOrigin(u), assets: assets, Payments: payments.New(), limits: map[string]limit{}, keys: map[string]*keyLock{}}
 	proxyCIDRs := os.Getenv("DONATE_TRUSTED_PROXIES")
 	if proxyCIDRs == "" {
 		proxyCIDRs = "127.0.0.1/32,::1/128"
@@ -120,6 +136,10 @@ func New(dataDir, publicURL string, assets fs.FS) (*App, error) {
 		db.Close()
 		return nil, e
 	}
+	if a.Donors, e = donors.New(db, a.PublicURL); e != nil {
+		db.Close()
+		return nil, e
+	}
 	if a.Notify, e = notify.New(db); e != nil {
 		db.Close()
 		return nil, e
@@ -129,13 +149,15 @@ func New(dataDir, publicURL string, assets fs.FS) (*App, error) {
 func (a *App) migrate() error {
 	_, e := a.DB.Exec(`
  CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
- CREATE TABLE IF NOT EXISTS donations(id TEXT PRIMARY KEY,status_token TEXT NOT NULL,amount_minor INTEGER NOT NULL CHECK(amount_minor>0),currency TEXT NOT NULL,method_id TEXT NOT NULL,method_type TEXT NOT NULL,method_name TEXT NOT NULL,name TEXT NOT NULL DEFAULT '',email TEXT NOT NULL DEFAULT '',message TEXT NOT NULL DEFAULT '',public INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL,source TEXT NOT NULL,provider_ref TEXT NOT NULL DEFAULT '',reference TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,paid_at TEXT NOT NULL DEFAULT '',checkout_url TEXT NOT NULL DEFAULT '',checkout_key TEXT NOT NULL DEFAULT '',checkout_digest TEXT NOT NULL DEFAULT '');
+ CREATE TABLE IF NOT EXISTS donations(id TEXT PRIMARY KEY,status_token TEXT NOT NULL,amount_minor INTEGER NOT NULL CHECK(amount_minor>0),currency TEXT NOT NULL,method_id TEXT NOT NULL,method_type TEXT NOT NULL,method_name TEXT NOT NULL,name TEXT NOT NULL DEFAULT '',email TEXT NOT NULL DEFAULT '',message TEXT NOT NULL DEFAULT '',public INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL,source TEXT NOT NULL,provider_ref TEXT NOT NULL DEFAULT '',reference TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,paid_at TEXT NOT NULL DEFAULT '',checkout_url TEXT NOT NULL DEFAULT '',checkout_key TEXT NOT NULL DEFAULT '',checkout_digest TEXT NOT NULL DEFAULT '',donor_user_id TEXT NOT NULL DEFAULT '');
  CREATE UNIQUE INDEX IF NOT EXISTS donation_checkout_key ON donations(checkout_key) WHERE checkout_key<>'';
  CREATE INDEX IF NOT EXISTS donation_paid_at ON donations(status,paid_at);
  CREATE TABLE IF NOT EXISTS provider_events(provider TEXT NOT NULL,event_id TEXT NOT NULL,donation_id TEXT NOT NULL,PRIMARY KEY(provider,event_id));
- CREATE TABLE IF NOT EXISTS idempotency(key TEXT PRIMARY KEY,request_hash TEXT NOT NULL,status TEXT NOT NULL,response TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL);
- PRAGMA user_version=1;`)
+ CREATE TABLE IF NOT EXISTS idempotency(key TEXT PRIMARY KEY,request_hash TEXT NOT NULL,status TEXT NOT NULL,response TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL);`)
 	if e != nil {
+		return e
+	}
+	if e = a.migrateDonorOwnership(); e != nil {
 		return e
 	}
 	var count int
@@ -189,6 +211,7 @@ func decode(w http.ResponseWriter, r *http.Request, v any) error {
 func (a *App) Routes() http.Handler {
 	mux := http.NewServeMux()
 	a.Auth.Routes(mux)
+	a.donorRoutes(mux)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if e := a.DB.PingContext(r.Context()); e != nil {
 			fail(w, 503, "数据库暂不可用")
@@ -197,6 +220,8 @@ func (a *App) Routes() http.Handler {
 		respond(w, 200, map[string]string{"status": "ok"})
 	})
 	mux.HandleFunc("GET /api/site", a.site)
+	mux.HandleFunc("GET /terms", a.legal)
+	mux.HandleFunc("GET /privacy", a.legal)
 	mux.HandleFunc("GET /api/stats", a.publicStats)
 	mux.HandleFunc("GET /api/private/stats", a.privateStats)
 	mux.HandleFunc("POST /api/donations", a.createDonation)

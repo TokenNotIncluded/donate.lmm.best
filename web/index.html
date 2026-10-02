@@ -56,9 +56,23 @@
       </section>
       <section class="support-section" id="support-section" aria-label="捐赠" hidden><div id="recent-support" class="recent-support"></div></section>
     </main>
-    <footer class="site-footer"><p id="site-footer-text" hidden></p><nav aria-label="Legal"><button class="text-link" type="button" data-policy="terms" data-i18n="terms">用户协议</button><button class="text-link" type="button" data-policy="privacy" data-i18n="privacy">隐私政策</button><a id="contact-link" class="text-link" hidden data-i18n="contact">联系</a></nav></footer>
+    <footer class="site-footer"><p id="site-footer-text" hidden></p><nav aria-label="Legal"><button class="text-link" type="button" data-policy="terms" data-i18n="terms">用户协议</button><button class="text-link" type="button" data-policy="privacy" data-i18n="privacy">隐私政策</button><a id="contact-link" class="text-link" hidden data-i18n="contact">联系</a><button id="donor-account-entry" class="text-link" type="button" aria-haspopup="dialog" aria-controls="donor-dialog">登录</button></nav></footer>
   </div>
   <dialog class="policy-dialog" id="policy-dialog"><div class="policy-header"><h2 id="policy-title"></h2><button type="button" id="close-policy" aria-label="关闭"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div id="policy-content"></div></dialog>
+  <dialog class="policy-dialog donor-dialog" id="donor-dialog" aria-labelledby="donor-title">
+    <div class="policy-header"><h2 id="donor-title">登录</h2><button type="button" id="close-donor" aria-label="关闭" autofocus><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+    <p id="donor-loading" class="account-feedback" role="status" hidden></p>
+    <p id="donor-error" class="account-feedback account-error" role="alert" hidden></p>
+    <p id="donor-status" class="account-feedback" role="status" hidden></p>
+    <div id="donor-auth-actions" class="donor-auth-actions"><button id="donor-register" class="donor-button primary" type="button" data-i18n="createPasskey">创建 Passkey</button><button id="donor-login" class="donor-button" type="button" data-i18n="signIn">登录</button></div>
+    <section id="donor-account" hidden>
+      <div class="account-actions"><button id="donor-add-passkey" class="text-link" type="button" data-i18n="addPasskey">添加 Passkey</button><button id="donor-logout" class="text-link" type="button" data-i18n="signOut">退出</button></div>
+      <h3 class="account-history-title" data-i18n="donationHistory">捐赠记录</h3>
+      <div id="donor-history-list" class="account-history"></div>
+      <p id="donor-history-empty" class="account-feedback" data-i18n="noHistory" hidden>暂无捐赠</p>
+      <div class="account-pagination" id="donor-history-pagination" hidden><button type="button" id="donor-history-prev" class="text-link" data-i18n="previous">上一页</button><span id="donor-history-page"></span><button type="button" id="donor-history-next" class="text-link" data-i18n="next">下一页</button></div>
+    </section>
+  </dialog>
   <noscript><p class="noscript-note">请启用 JavaScript。Please enable JavaScript.</p></noscript>
 </body>
 </html>

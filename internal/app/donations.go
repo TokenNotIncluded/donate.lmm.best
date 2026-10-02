@@ -38,22 +38,23 @@ type Donation struct {
 	CheckoutURL    string `json:"-"`
 	CheckoutKey    string `json:"-"`
 	CheckoutDigest string `json:"-"`
+	DonorUserID    string `json:"donor_user_id,omitempty"`
 }
 
-const donationColumns = "id,status_token,amount_minor,currency,method_id,method_type,method_name,name,email,message,public,status,source,provider_ref,reference,created_at,paid_at,checkout_url,checkout_key,checkout_digest"
+const donationColumns = "id,status_token,amount_minor,currency,method_id,method_type,method_name,name,email,message,public,status,source,provider_ref,reference,created_at,paid_at,checkout_url,checkout_key,checkout_digest,donor_user_id"
 
 type scanner interface{ Scan(...any) error }
 
 func scanDonation(s scanner) (Donation, error) {
 	var d Donation
-	e := s.Scan(&d.ID, &d.StatusToken, &d.AmountMinor, &d.Currency, &d.MethodID, &d.MethodType, &d.MethodName, &d.Name, &d.Email, &d.Message, &d.Public, &d.Status, &d.Source, &d.ProviderRef, &d.Reference, &d.CreatedAt, &d.PaidAt, &d.CheckoutURL, &d.CheckoutKey, &d.CheckoutDigest)
+	e := s.Scan(&d.ID, &d.StatusToken, &d.AmountMinor, &d.Currency, &d.MethodID, &d.MethodType, &d.MethodName, &d.Name, &d.Email, &d.Message, &d.Public, &d.Status, &d.Source, &d.ProviderRef, &d.Reference, &d.CreatedAt, &d.PaidAt, &d.CheckoutURL, &d.CheckoutKey, &d.CheckoutDigest, &d.DonorUserID)
 	return d, e
 }
 func (a *App) donation(id string) (Donation, error) {
 	return scanDonation(a.DB.QueryRow("SELECT "+donationColumns+" FROM donations WHERE id=?", id))
 }
 func insertDonation(tx *sql.Tx, d Donation) error {
-	_, e := tx.Exec("INSERT INTO donations("+donationColumns+") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", d.ID, d.StatusToken, d.AmountMinor, d.Currency, d.MethodID, d.MethodType, d.MethodName, d.Name, d.Email, d.Message, d.Public, d.Status, d.Source, d.ProviderRef, d.Reference, d.CreatedAt, d.PaidAt, d.CheckoutURL, d.CheckoutKey, d.CheckoutDigest)
+	_, e := tx.Exec("INSERT INTO donations("+donationColumns+") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", d.ID, d.StatusToken, d.AmountMinor, d.Currency, d.MethodID, d.MethodType, d.MethodName, d.Name, d.Email, d.Message, d.Public, d.Status, d.Source, d.ProviderRef, d.Reference, d.CreatedAt, d.PaidAt, d.CheckoutURL, d.CheckoutKey, d.CheckoutDigest, d.DonorUserID)
 	return e
 }
 func methodByID(s Settings, id string) (payments.Method, bool) {
@@ -105,6 +106,11 @@ func (a *App) createDonation(w http.ResponseWriter, r *http.Request) {
 	}
 	if !a.rateLimit(r) {
 		fail(w, 429, "请求过于频繁，请稍后再试")
+		return
+	}
+	donorUserID, e := a.checkoutDonor(r)
+	if e != nil {
+		fail(w, http.StatusForbidden, "捐赠账号会话或请求验证无效，请重新登录")
 		return
 	}
 	var in donationInput
@@ -159,6 +165,9 @@ func (a *App) createDonation(w http.ResponseWriter, r *http.Request) {
 	}
 	raw, _ := json.Marshal(in)
 	requestDigest := digest(string(raw))
+	if donorUserID != "" {
+		requestDigest = digest(string(raw) + "\n" + "donor:" + donorUserID)
+	}
 	var d Donation
 	if key != "" {
 		d, e = scanDonation(a.DB.QueryRow("SELECT "+donationColumns+" FROM donations WHERE checkout_key=?", key))
@@ -167,7 +176,7 @@ func (a *App) createDonation(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if e == nil {
-			if d.CheckoutDigest != requestDigest {
+			if d.DonorUserID != donorUserID || d.CheckoutDigest != requestDigest {
 				fail(w, 409, "同一个操作标识不能用于不同的捐赠")
 				return
 			}
@@ -179,7 +188,7 @@ func (a *App) createDonation(w http.ResponseWriter, r *http.Request) {
 	}
 	if d.ID == "" {
 		now := time.Now().UTC().Format(time.RFC3339Nano)
-		d = Donation{ID: randomToken(), StatusToken: randomToken(), AmountMinor: in.AmountMinor, Currency: in.Currency, MethodID: m.ID, MethodType: m.Type, MethodName: m.Name, Name: strings.TrimSpace(in.Name), Email: in.Email, Message: strings.TrimSpace(in.Message), Public: in.Public, Status: "pending", Source: "checkout", CreatedAt: now, CheckoutKey: key, CheckoutDigest: requestDigest}
+		d = Donation{ID: randomToken(), StatusToken: randomToken(), AmountMinor: in.AmountMinor, Currency: in.Currency, MethodID: m.ID, MethodType: m.Type, MethodName: m.Name, Name: strings.TrimSpace(in.Name), Email: in.Email, Message: strings.TrimSpace(in.Message), Public: in.Public, Status: "pending", Source: "checkout", CreatedAt: now, CheckoutKey: key, CheckoutDigest: requestDigest, DonorUserID: donorUserID}
 		if err := payments.ValidateCheckout(m, a.checkoutRequest(d, m)); err != nil {
 			fail(w, 400, payments.SafeError(err))
 			return
@@ -261,6 +270,9 @@ func (a *App) donationStatus(w http.ResponseWriter, r *http.Request) {
 func (a *App) queueEvent(tx *sql.Tx, d Donation, eventType string, s Settings) error {
 	// This is the sole event payload; configuration/credentials never enter notifications.
 	event := notify.Event{ID: eventType + "_" + d.ID, Type: eventType, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), Donation: map[string]any{"id": d.ID, "amount_minor": d.AmountMinor, "currency": d.Currency, "method_id": d.MethodID, "method_name": d.MethodName, "name": d.Name, "email": d.Email, "message": d.Message, "paid_at": d.PaidAt, "source": d.Source}}
+	if d.DonorUserID != "" {
+		event.Donation.(map[string]any)["donor_user_id"] = d.DonorUserID
+	}
 	return a.Notify.Queue(tx, event, notify.Config{Webhook: s.Webhook, SMTP: s.SMTP})
 }
 func (a *App) settle(r *http.Request, provider string, c payments.Confirmation, s Settings) error {

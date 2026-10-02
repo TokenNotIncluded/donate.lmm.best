@@ -7,6 +7,7 @@
 | 请求 | 用途 |
 | --- | --- |
 | `GET /api/site` | 公开网站文本、语言与币种设置、启用的支付方式、统计和同意公开的感谢记录 |
+| `GET /terms`、`GET /privacy` | 独立政策页面，`?lang=en` 等选择已配置的语言；直接读取后台文本 |
 | `POST /api/donations` | 创建待确认捐赠并返回支付链接或二维码 |
 | `GET /api/donations/{id}?token=STATUS_TOKEN` | 以独立访问令牌读取付款状态及待付款的二维码、说明和链接 |
 | `GET /api/stats?currency=USD` | 只统计已确认的捐赠，返回选定币种及分币种汇总 |
@@ -35,6 +36,24 @@ curl http://localhost:8080/api/donations \
 `Idempotency-Key` 为 20–80 位 ASCII 字母、数字、下划线或连字符。一次操作重试保持相同请求和 key；不同内容使用原 key 返回 409。结果不明的线上结账超过 5 小时后停止自动创建重试，需要先核对渠道，避免跨渠道幂等缓存期限重复创建。已知结账链接直接恢复。平台的币种、金额等本地限制在入库前检查。
 
 统计返回 `{count,total_minor,currency,by_currency:[{currency,count,total_minor}],methods:[{method_id,method_name,currency,count,total_minor}],daily:[{date,currency,count,total_minor}]}`，同一次响应来自一致的数据库快照。`daily` 为最近 90 天、UTC 日期。线上 `paid_at` 是本站处理支付确认的时间；手动记录可填写实际到账时间。通知同时提供事件 `created_at`。
+
+## 捐赠者账号
+
+账号可选，访客捐赠不需要登录。用户直接创建 Passkey，之后使用 Passkey 登录；没有用户密码入口，也不授予管理员权限。
+
+| 请求 | 用途 |
+| --- | --- |
+| `GET /api/donor/session` | 用户登录状态、当前账号及会话 CSRF token |
+| `POST /api/donor/register/begin` | 新账号的 Passkey 注册参数；已登录时添加备用 Passkey |
+| `POST /api/donor/register/finish` | 验证注册结果并建立用户会话 |
+| `POST /api/donor/login/begin` | 可发现 Passkey 的登录参数 |
+| `POST /api/donor/login/finish` | 验证签名并建立用户会话 |
+| `POST /api/donor/logout` | 撤销当前用户会话 |
+| `GET /api/donor/donations?limit=20&offset=0` | 当前账号的捐赠历史，返回 `{donations,total,limit,offset}` |
+
+用户 Cookie 与后台 Cookie 独立，采用 HttpOnly、SameSite Strict；HTTPS 下为 Secure。注册和登录挑战有期限、绑定发起浏览器且只能消费一次，要求设备用户验证和精确 Origin。已登录用户的写请求使用该用户会话的 `X-CSRF-Token`。
+
+`POST /api/donations` 仅由服务器从当前会话取得账号 ID。客户端不能指定捐款归属；匿名记录不会因相同姓名或邮箱自动归入账号。身份参与幂等请求核对，换账号后不能复用原操作取得其他人的付款状态凭据。用户历史不返回状态 token，不公开账号标识或其他用户的私人信息。后台记录额外提供 `donor_user_id`，空字符串表示访客；这是固定身份标识，不代表已授予任何权益。已登录捐款的私人通知也包含 `donor_user_id`，访客通知省略该字段。
 
 ## 后台登录
 

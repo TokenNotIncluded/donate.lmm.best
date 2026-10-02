@@ -176,3 +176,27 @@ func TestManualRecordingRetryDoesNotDuplicateLedgerOrNotifications(t *testing.T)
 		t.Fatal("conflicting manual request affected ledger/outbox")
 	}
 }
+
+func TestPrivateDonationNotificationCarriesTrustedAccountID(t *testing.T) {
+	a := testApp(t)
+	testSettings(t, a, customMethod())
+	owner := donorSessionFixture(t, a)
+	checkout := donorCheckout(t, a, owner, donationInput{AmountMinor: 500, Currency: "USD", MethodID: "qr", AcceptedTerms: true}, "")
+	expectStatus(t, confirmCustom(t, a, checkout.ID, map[string]string{}), http.StatusOK)
+	var payload []byte
+	if err := a.DB.QueryRow("SELECT payload FROM notification_jobs").Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	var event struct {
+		Donation map[string]any `json:"donation"`
+	}
+	if err := json.Unmarshal(payload, &event); err != nil {
+		t.Fatal(err)
+	}
+	if event.Donation["donor_user_id"] != owner.id {
+		t.Fatal("private notification lost trusted account association")
+	}
+	if strings.Contains(string(payload), owner.token) || strings.Contains(string(payload), checkout.StatusToken) {
+		t.Fatal("private notification leaked bearer credentials")
+	}
+}

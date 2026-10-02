@@ -1,4 +1,5 @@
 // npm ci && npx playwright install chromium && npm run test:browser
+// Only donor lifecycle regressions: DONATE_BROWSER_FOCUS=lifecycle npm run test:browser
 // Uses an isolated temporary SQLite database. No live payment provider is contacted.
 import assert from 'node:assert/strict';
 import {execFileSync, spawn} from 'node:child_process';
@@ -57,7 +58,7 @@ async function coffeeMotion(page) {
 }
 async function api(context, path, options) {
   const response = await context.request.fetch(`${base}${path}`, options);
-  return {status:response.status(), data:await response.json()};
+  return {status:response.status(), data:response.status() === 204 ? null : await response.json()};
 }
 async function save(page, form, expected = 200) {
   const [response] = await Promise.all([
@@ -73,6 +74,76 @@ async function addAuthenticator(page) {
   const {authenticatorId} = await cdp.send('WebAuthn.addVirtualAuthenticator', {options:{protocol:'ctap2',transport:'internal',hasResidentKey:true,hasUserVerification:true,isUserVerified:true,automaticPresenceSimulation:true}});
   return {cdp, authenticatorId};
 }
+async function openDonor(page) {
+  await hidden(page,'#donor-dialog');
+  await page.locator('#donor-account-entry').click();
+  await visible(page,'#donor-dialog');
+  assert.equal(await page.evaluate(() => !!document.activeElement?.closest('#donor-dialog')),true,'Account dialog must receive focus');
+}
+async function closeDonor(page) {
+  await page.locator('#close-donor').click();
+  await hidden(page,'#donor-dialog');
+  assert.equal(await page.evaluate(() => document.activeElement?.id),'donor-account-entry','Closing account dialog must return focus');
+}
+async function donorState(context) {
+  const state = await api(context,'/api/donor/session');
+  assert.equal(state.status,200);
+  return state.data;
+}
+async function confirmedReceipt(page) {
+  if(!(await page.locator('#checkout-title').textContent()).includes('confirmed')) {
+    await page.locator('#status-refresh').click({timeout:2000}).catch(async error => {
+      // Automatic polling may complete while Playwright is locating the button.
+      if(!(await page.locator('#checkout-title').textContent()).includes('confirmed')) throw error;
+    });
+  }
+  await textIncludes(page,'#checkout-title','confirmed');
+}
+async function crossRoleAssertion(page, prefix) {
+  return page.evaluate(async prefix => {
+    const decode = value => {
+      const text = value.replace(/-/g,'+').replace(/_/g,'/');
+      return Uint8Array.from(atob(text.padEnd(Math.ceil(text.length/4)*4,'=')),character => character.charCodeAt(0));
+    };
+    const encode = value => {
+      let text = '';for(const byte of new Uint8Array(value)) text += String.fromCharCode(byte);
+      return btoa(text).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+    };
+    const begin = await fetch(`${prefix}/login/begin`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    if(!begin.ok)return {stage:'begin',status:begin.status};
+    const {publicKey} = await begin.json();
+    publicKey.challenge = decode(publicKey.challenge);
+    // A hostile client can remove a browser credential filter. The server must
+    // still reject a genuine signature made with the other role's resident key.
+    publicKey.allowCredentials = [];
+    publicKey.timeout = 3000;
+    const credential = await navigator.credentials.get({publicKey});
+    const response = {};
+    for(const field of ['clientDataJSON','authenticatorData','signature','userHandle']) {
+      if(credential.response[field])response[field] = encode(credential.response[field]);
+    }
+    const assertion = {id:credential.id,rawId:encode(credential.rawId),type:credential.type,response,clientExtensionResults:credential.getClientExtensionResults()};
+    const finish = await fetch(`${prefix}/login/finish`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(assertion)});
+    return {stage:'finish',status:finish.status};
+  }, prefix);
+}
+async function createCustomDonation(page, amount, {name='',email='',message='',publicName=false} = {}) {
+  await visible(page,'#donation-form');
+  await page.locator('#currency').selectOption('USD');
+  await page.locator('#amount').fill(String(amount));
+  if(!await page.locator('.donor-details').evaluate(element => element.open)) await page.locator('.donor-details summary').click();
+  await page.locator('#donor-name').fill(name);
+  await page.locator('#donor-email').fill(email);
+  await page.locator('#donor-message').fill(message);
+  await page.locator('#donor-public').setChecked(publicName);
+  const [response] = await Promise.all([
+    page.waitForResponse(response => response.url() === `${base}/api/donations` && response.request().method() === 'POST'),
+    page.locator('#donate-button').click()
+  ]);
+  assert.equal(response.status(),200,await response.text());
+  await visible(page,'#checkout-qr');
+  return {donation:await response.json(),request:response.request()};
+}
 function watch(page) {
   lastPage = page;
   page.setDefaultTimeout(15_000);
@@ -84,6 +155,167 @@ function watch(page) {
   page.on('response', response => {
     if (response.status() >= 500 || (response.status() >= 400 && !response.url().includes('/api/'))) unexpectedResponses.push(`${response.status()} ${response.url()}`);
   });
+}
+
+function deferred() {
+  let resolve;
+  const promise = new Promise(done => {resolve=done;});
+  return {promise,resolve};
+}
+async function donorLifecycleScenarios() {
+  const context = await browser.newContext({locale:'en-US',viewport:{width:1440,height:1050}});
+  const page = await context.newPage();
+  watch(page);
+  let device = await addAuthenticator(page);
+  const startupSeen=deferred(), startupRelease=deferred();
+  const oldHistorySeen=deferred(), oldHistoryRelease=deferred();
+  const newHistorySeen=deferred(), newHistoryRelease=deferred();
+  const finishSeen=deferred(), finishRelease=deferred();
+  let initialSession=true, holdHistory=false, historyIndex=0, holdFinish=false;
+  let sessionRequests=0, historyRequests=0, registerRequests=0;
+  const checkouts=[];
+  let originalState, firstCheckout;
+  // The delay fixture preserves an actual server response that expires an
+  // invalid cookie. A separate Node fetch avoids applying Set-Cookie to the
+  // browser before the deliberately delayed browser response is delivered.
+  const expiredCookie='expired-lifecycle-fixture';
+  const expiredResponse=await fetch(`${base}/api/donor/session`,{headers:{Cookie:`donate_donor=${expiredCookie}`}});
+  assert.equal(expiredResponse.status,200);
+  const expiredBody=await expiredResponse.text();
+  assert.equal(JSON.parse(expiredBody).authenticated,false);
+  const expiredClear=expiredResponse.headers.get('set-cookie');
+  assert.ok(expiredClear?.includes('donate_donor='),'Expired session must send a clearing cookie');
+  await context.addCookies([{name:'donate_donor',value:expiredCookie,url:base,httpOnly:true,sameSite:'Lax'}]);
+  const site=await (await fetch(`${base}/api/site`)).json();
+  site.methods=[{id:'lifecycle-fixture',type:'custom',name:'Lifecycle fixture',description:'',qr_url:'/favicon.svg',checkout_url:''}];
+  await context.route(`${base}/api/site`,route => route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(site)}));
+  await context.route(`${base}/api/donations`,async route => {
+    assert.equal(route.request().method(),'POST');
+    checkouts.push({body:route.request().postData(),headers:route.request().headers()});
+    // Keep the same unresolved checkout intent without creating a payment.
+    await route.fulfill({status:409,contentType:'application/json',body:JSON.stringify({error:'Paused checkout fixture'})});
+  });
+  page.on('request',request => {
+    const path=new URL(request.url()).pathname;
+    if(path==='/api/donor/session')sessionRequests++;
+    if(path==='/api/donor/donations')historyRequests++;
+    if(path==='/api/donor/register/begin')registerRequests++;
+  });
+  await context.route(`${base}/api/donor/session`,async route => {
+    if(!initialSession)return route.continue();
+    initialSession=false;startupSeen.resolve();
+    await startupRelease.promise;
+    await route.fulfill({status:200,headers:{'Content-Type':'application/json','Set-Cookie':expiredClear},body:expiredBody});
+  });
+  await context.route(/\/api\/donor\/donations\?/,async route => {
+    if(!holdHistory)return route.continue();
+    if(++historyIndex===1) {
+      oldHistorySeen.resolve();await oldHistoryRelease.promise;
+      await route.fulfill({status:401,contentType:'application/json',body:JSON.stringify({error:'Delayed old-session history fixture'})});
+    } else {
+      newHistorySeen.resolve();await newHistoryRelease.promise;
+      await route.continue();
+    }
+  });
+  await context.route(`${base}/api/donor/register/finish`,async route => {
+    if(holdFinish) {finishSeen.resolve();await finishRelease.promise;}
+    await route.continue();
+  });
+  const retryCheckout=async () => {
+    await Promise.all([
+      page.waitForResponse(response => response.url()===`${base}/api/donations` && response.status()===409),
+      page.locator('#donate-button').click()
+    ]);
+    await textIncludes(page,'#form-error','Paused checkout fixture');
+    await page.waitForFunction(() => !document.querySelector('#donate-button').disabled);
+    return checkouts.at(-1);
+  };
+  try {
+    await step('Delayed expired session finishes before genuine Passkey signup; concurrent session reads are shared',async () => {
+      await page.goto(base);
+      await startupSeen.promise;
+      await visible(page,'#presets button');
+      await openDonor(page);
+      await page.locator('#donor-register').click();
+      await page.waitForTimeout(200);
+      assert.equal(sessionRequests,1,'Opening the dialog and registration must share the startup session read');
+      assert.equal(registerRequests,0,'Registration must wait until a pending cookie-clearing response settles');
+      startupRelease.resolve();
+      await visible(page,'#donor-logout');
+      originalState=await donorState(context);
+      assert.equal(originalState.authenticated,true);
+      assert.equal(originalState.passkey_count,1);
+      assert.equal((await device.cdp.send('WebAuthn.getCredentials',{authenticatorId:device.authenticatorId})).credentials.length,1);
+      const cookie=(await context.cookies(base)).find(cookie => cookie.name==='donate_donor');
+      assert.ok(cookie?.value && cookie.value!==expiredCookie,'The real signup cookie must survive the stale clearing response');
+      await closeDonor(page);
+      await page.locator('#currency').selectOption('USD');
+      await page.locator('#amount').fill('15');
+      firstCheckout=await retryCheckout();
+      assert.ok(firstCheckout.headers['idempotency-key']);
+      assert.equal(firstCheckout.headers['x-csrf-token'],originalState.csrf_token);
+    });
+    await step('Closing and reopening during real backup enrollment sends no session or history reads until finish settles',async () => {
+      holdHistory=true;
+      await openDonor(page);
+      await oldHistorySeen.promise;
+      await device.cdp.send('WebAuthn.removeVirtualAuthenticator',{authenticatorId:device.authenticatorId});
+      device=await addAuthenticator(page);
+      holdFinish=true;
+      await page.locator('#donor-add-passkey').click();
+      await finishSeen.promise;
+      const before={sessionRequests,historyRequests};
+      assert.equal(await page.locator('#donate-button').isDisabled(),true);
+      await closeDonor(page);
+      await openDonor(page);
+      await page.waitForTimeout(200);
+      assert.deepEqual({sessionRequests,historyRequests},before,'An unfinished auth mutation must exclude background reads');
+      const finished=page.waitForResponse(response => response.url()===`${base}/api/donor/register/finish`);
+      finishRelease.resolve();
+      assert.equal((await finished).status(),200,'The real backup registration must finish even after the dialog closes');
+      await newHistorySeen.promise;
+      await page.waitForFunction(() => !document.querySelector('#donate-button').disabled);
+      assert.equal(await page.locator('#donor-add-passkey').isDisabled(),false,'Slow history must not lock account actions after registration');
+      const after=await donorState(context);
+      assert.equal(after.user.id,originalState.user.id);
+      assert.equal(after.passkey_count,2);
+      assert.notEqual(after.csrf_token,originalState.csrf_token,'Real backup enrollment must rotate the session');
+    });
+    await step('A delayed old history 401 cannot sign out the rotated session or replace a pending checkout key',async () => {
+      const oldResponse=page.waitForResponse(response => new URL(response.url()).pathname==='/api/donor/donations' && response.status()===401);
+      oldHistoryRelease.resolve();
+      await oldResponse;
+      newHistoryRelease.resolve();
+      await visible(page,'#donor-history-empty');
+      await hidden(page,'#donor-error');
+      const after=await donorState(context);
+      assert.equal(after.authenticated,true);
+      assert.equal(after.user.id,originalState.user.id);
+      await closeDonor(page);
+      const retry=await retryCheckout();
+      assert.equal(retry.body,firstCheckout.body);
+      assert.equal(retry.headers['idempotency-key'],firstCheckout.headers['idempotency-key'],'Same-owner backup registration must preserve the pending checkout key');
+      assert.equal(retry.headers['x-csrf-token'],after.csrf_token);
+    });
+    await step('Expiry of a known donor session stops that checkout; only an explicit retry creates a guest intent',async () => {
+      await context.addCookies([{name:'donate_donor',value:expiredCookie,url:base,httpOnly:true,sameSite:'Lax'}]);
+      const before=checkouts.length;
+      await page.locator('#donate-button').click();
+      await textIncludes(page,'#form-error','expired');
+      await page.waitForFunction(() => !document.querySelector('#donate-button').disabled);
+      assert.equal(checkouts.length,before,'An expired known account must not silently submit the same action as a guest');
+      assert.equal((await donorState(context)).authenticated,false);
+      assert.equal(await page.locator('#donor-account-entry').textContent(),'Sign in');
+      const guest=await retryCheckout();
+      assert.equal(checkouts.length,before+1);
+      assert.equal(guest.body,firstCheckout.body);
+      assert.equal(guest.headers['x-csrf-token'] || '','');
+      assert.notEqual(guest.headers['idempotency-key'],firstCheckout.headers['idempotency-key']);
+    });
+  } finally {
+    for(const pending of [startupRelease,oldHistoryRelease,newHistoryRelease,finishRelease])pending.resolve();
+    await context.close();
+  }
 }
 
 try {
@@ -109,6 +341,9 @@ try {
   }
   const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || (existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined);
   browser = await chromium.launch({headless:true,executablePath});
+  const focus=process.env.DONATE_BROWSER_FOCUS;
+  assert.ok(!focus || focus==='lifecycle','DONATE_BROWSER_FOCUS must be unset or lifecycle');
+  if(!focus) {
   const adminContext = await browser.newContext({locale:'en-US',viewport:{width:1440,height:1050}});
   const admin = await adminContext.newPage();
   watch(admin);
@@ -285,8 +520,7 @@ try {
     ]);
     assert.equal(response.status(),200,await response.text());
     await textIncludes(admin,'#notice','Payment confirmed');
-    await publicPage.locator('#status-refresh').click();
-    await textIncludes(publicPage,'#checkout-title','confirmed');
+    await confirmedReceipt(publicPage);
     await hidden(publicPage,'#checkout-qr');
     const stats = (await api(publicContext,'/api/stats?currency=USD')).data;
     assert.equal(stats.count,1);
@@ -384,6 +618,205 @@ try {
     await visible(admin,'#admin-view');
     assert.equal((await api(adminContext,'/api/admin/donations')).data.total,2);
   });
+
+  const donorContext = await browser.newContext({locale:'en-US',viewport:{width:1440,height:1050}});
+  const donorPage = await donorContext.newPage();
+  watch(donorPage);
+  let donorDevice = await addAuthenticator(donorPage);
+  let donorID, accountDonationID, guestAfterLogoutID;
+
+  await step('Optional donor account: modal focus and Escape, genuine Passkey signup, independent administrator permissions', async () => {
+    assert.equal((await donorState(adminContext)).authenticated,false,'An admin session must not grant a donor account');
+    assert.equal((await api(adminContext,'/api/donor/donations')).status,401);
+    await donorPage.goto(base);
+    await visible(donorPage,'input[name=method_id]');
+    await hidden(donorPage,'#donor-dialog');
+    assert.equal((await donorState(donorContext)).authenticated,false);
+    await openDonor(donorPage);
+    await visible(donorPage,'#donor-register');
+    await visible(donorPage,'#donor-login');
+    assert.equal(await donorPage.locator('#donor-dialog input[type=password], #donor-dialog input[type=email]').count(),0,'Donor account signup only uses Passkeys');
+    await noOverflow(donorPage);
+    await donorPage.screenshot({path:resolve(artifacts,'donor-signin-desktop.png'),fullPage:true});
+    await donorPage.keyboard.press('Escape');
+    await hidden(donorPage,'#donor-dialog');
+    assert.equal(await donorPage.evaluate(() => document.activeElement?.id),'donor-account-entry');
+    await openDonor(donorPage);
+    await donorPage.locator('#donor-register').click();
+    await visible(donorPage,'#donor-logout');
+    const session = await donorState(donorContext);
+    assert.equal(session.authenticated,true);
+    assert.equal(session.passkey_count,1);
+    donorID = session.user.id;
+    assert.ok(donorID);
+    assert.equal(session.donor_id,donorID);
+    assert.equal((await donorDevice.cdp.send('WebAuthn.getCredentials',{authenticatorId:donorDevice.authenticatorId})).credentials.length,1);
+    assert.equal((await api(donorContext,'/api/auth/status')).data.authenticated,false);
+    assert.equal((await api(donorContext,'/api/admin/settings')).status,401,'A donor must not become an administrator');
+    assert.equal((await api(donorContext,'/api/private/stats')).status,401);
+    assert.equal((await api(adminContext,'/api/auth/status')).data.authenticated,true,'Donor enrollment must preserve the separate admin session');
+    assert.equal((await donorState(adminContext)).authenticated,false);
+    assert.equal((await api(donorContext,'/api/donor/donations')).data.total,0);
+    await textIncludes(donorPage,'#donor-history-empty','No donations');
+    await closeDonor(donorPage);
+  });
+
+  await step('Donor backup Passkey, sign out and sign in preserve one stable account', async () => {
+    await openDonor(donorPage);
+    // Remove only the simulated device, leaving its enrolled key on the server.
+    // A fresh device represents the donor's separate backup security key.
+    await donorDevice.cdp.send('WebAuthn.removeVirtualAuthenticator',{authenticatorId:donorDevice.authenticatorId});
+    donorDevice = await addAuthenticator(donorPage);
+    await donorPage.locator('#donor-add-passkey').click();
+    await donorPage.waitForFunction(() => !document.querySelector('#donor-add-passkey')?.disabled);
+    const backedUp = await donorState(donorContext);
+    assert.equal(backedUp.user.id,donorID);
+    assert.equal(backedUp.passkey_count,2);
+    assert.equal((await donorDevice.cdp.send('WebAuthn.getCredentials',{authenticatorId:donorDevice.authenticatorId})).credentials.length,1);
+    await donorPage.locator('#donor-logout').click();
+    await visible(donorPage,'#donor-login');
+    assert.equal((await donorState(donorContext)).authenticated,false);
+    assert.equal((await api(donorContext,'/api/donor/donations')).status,401);
+    await donorPage.locator('#donor-login').click();
+    await visible(donorPage,'#donor-logout');
+    const signedIn = await donorState(donorContext);
+    assert.equal(signedIn.user.id,donorID);
+    assert.equal(signedIn.passkey_count,2);
+    await closeDonor(donorPage);
+  });
+
+  await step('Real Passkey signatures cannot cross donor and administrator authentication', async () => {
+    assert.deepEqual(await crossRoleAssertion(donorPage,'/api/auth'),{stage:'finish',status:401});
+    assert.equal((await donorState(donorContext)).user.id,donorID);
+    assert.equal((await api(donorContext,'/api/auth/status')).data.authenticated,false);
+    assert.deepEqual(await crossRoleAssertion(admin,'/api/donor'),{stage:'finish',status:401});
+    assert.equal((await api(adminContext,'/api/auth/status')).data.authenticated,true);
+    assert.equal((await donorState(adminContext)).authenticated,false);
+  });
+
+  await step('Signed-in donation uses server-side ownership and donor CSRF; private account history updates after confirmation', async () => {
+    const created = await createCustomDonation(donorPage,5,{name:'Account fixture supporter',email:'account-private@example.com',message:'Private account contribution'});
+    accountDonationID = created.donation.id;
+    assert.equal(created.request.headers()['x-csrf-token'],(await donorState(donorContext)).csrf_token);
+    assert.ok(!Object.hasOwn(created.request.postDataJSON(),'donor_user_id'),'The browser must not supply donation ownership');
+    const ledger = (await api(adminContext,'/api/admin/donations')).data.donations;
+    assert.equal(ledger.find(item => item.id === accountDonationID).donor_user_id,donorID);
+    assert.equal(ledger.find(item => item.id === donationID).donor_user_id || '','','The earlier guest donation must remain unlinked');
+    const history = (await api(donorContext,'/api/donor/donations')).data;
+    assert.equal(history.total,1);
+    assert.equal(history.donations[0].id,accountDonationID);
+    assert.equal(history.donations[0].status,'pending');
+    assert.ok(!JSON.stringify(history).includes('private-fixture@example.com'));
+    await openDonor(donorPage);
+    await textIncludes(donorPage,'#donor-history-list','Pending');
+    await closeDonor(donorPage);
+    await admin.locator('[data-view=ledger]').click();
+    await admin.locator('#ledger-refresh').click();
+    const linkedDetails = admin.locator('.donation-row').filter({hasText:accountDonationID}).locator('.donation-details');
+    await linkedDetails.locator('summary').click();
+    assert.ok((await linkedDetails.textContent()).includes(`Account: ${donorID}`),'Admin record must show the stable donor account ID');
+    const oldGuestDetails = admin.locator('.donation-row').filter({hasText:donationID}).locator('.donation-details');
+    assert.ok(!(await oldGuestDetails.textContent()).includes('Account:'),'Guest records must not show an account binding');
+    await admin.locator(`[data-show-confirm="${accountDonationID}"]`).click();
+    const confirmation = admin.locator(`[data-confirm-id="${accountDonationID}"]`);
+    const [confirmed] = await Promise.all([
+      admin.waitForResponse(response => response.url().endsWith(`/api/admin/donations/${accountDonationID}/confirm`)),
+      confirmation.locator('button[type=submit]').click()
+    ]);
+    assert.equal(confirmed.status(),200,await confirmed.text());
+    await confirmedReceipt(donorPage);
+    await openDonor(donorPage);
+    await textIncludes(donorPage,'#donor-history-list','Confirmed');
+    assert.equal((await api(donorContext,'/api/donor/donations')).data.donations[0].status,'confirmed');
+    assert.equal((await api(donorContext,'/api/site')).data.recent.length,1,'Private account donations must not appear publicly');
+    assert.ok(!JSON.stringify((await api(donorContext,'/api/site')).data).includes(donorID));
+    await noOverflow(donorPage);
+    await donorPage.screenshot({path:resolve(artifacts,'donor-history-desktop.png'),fullPage:true});
+    for(const width of [390,320]) {
+      await donorPage.setViewportSize({width,height:844});
+      await noOverflow(donorPage);
+      await donorPage.screenshot({path:resolve(artifacts,`donor-history-${width}.png`),fullPage:true});
+    }
+    await closeDonor(donorPage);
+  });
+
+  await step('Signing out restores guest donation; signing back in does not claim the guest record', async () => {
+    await donorPage.locator('#new-donation').click();
+    await openDonor(donorPage);
+    await donorPage.locator('#donor-logout').click();
+    await visible(donorPage,'#donor-register');
+    await closeDonor(donorPage);
+    const guest = await createCustomDonation(donorPage,5,{name:'Account fixture supporter',email:'account-private@example.com',message:'Private account contribution'});
+    guestAfterLogoutID = guest.donation.id;
+    assert.notEqual(guestAfterLogoutID,accountDonationID,'A new guest checkout must have its own record');
+    assert.equal(guest.request.headers()['x-csrf-token'] || '','');
+    const guestRecord = (await api(adminContext,'/api/admin/donations')).data.donations.find(item => item.id === guestAfterLogoutID);
+    assert.equal(guestRecord.donor_user_id || '','');
+    await openDonor(donorPage);
+    await donorPage.locator('#donor-login').click();
+    await visible(donorPage,'#donor-logout');
+    assert.equal((await donorState(donorContext)).user.id,donorID);
+    const history = (await api(donorContext,'/api/donor/donations')).data;
+    assert.equal(history.total,1);
+    assert.ok(!history.donations.some(item => item.id === guestAfterLogoutID));
+    await closeDonor(donorPage);
+  });
+
+  await step('Separate donor account cannot read another donor history or acquire administrator access', async () => {
+    const otherContext = await browser.newContext({locale:'en-US',viewport:{width:390,height:844}});
+    const otherPage = await otherContext.newPage();
+    watch(otherPage);
+    const otherDevice = await addAuthenticator(otherPage);
+    await otherPage.goto(base);
+    await visible(otherPage,'#donor-account-entry');
+    await openDonor(otherPage);
+    await otherPage.locator('#donor-register').click();
+    await visible(otherPage,'#donor-logout');
+    const other = await donorState(otherContext);
+    assert.notEqual(other.user.id,donorID);
+    assert.equal((await otherDevice.cdp.send('WebAuthn.getCredentials',{authenticatorId:otherDevice.authenticatorId})).credentials.length,1);
+    const history = await api(otherContext,`/api/donor/donations?donor_user_id=${encodeURIComponent(donorID)}`);
+    assert.equal(history.status,200);
+    assert.equal(history.data.total,0);
+    assert.deepEqual(history.data.donations,[]);
+    assert.equal((await api(otherContext,'/api/admin/settings')).status,401);
+    await noOverflow(otherPage);
+    await otherContext.close();
+    lastPage = donorPage;
+  });
+
+  await step('Admin and donor cookies coexist without sharing CSRF or logout authority', async () => {
+    const mixed = await browser.newContext();
+    await mixed.addCookies([...(await adminContext.cookies(base)),...(await donorContext.cookies(base))]);
+    const adminState = (await api(mixed,'/api/auth/status')).data;
+    const ownerState = await donorState(mixed);
+    assert.equal(adminState.authenticated,true);
+    assert.equal(ownerState.user.id,donorID);
+    assert.notEqual(adminState.csrf_token,ownerState.csrf_token);
+    const wrongToken = await api(mixed,'/api/donor/logout',{method:'POST',headers:{Origin:base,'X-CSRF-Token':adminState.csrf_token},data:{}});
+    assert.equal(wrongToken.status,401);
+    assert.equal((await donorState(mixed)).authenticated,true);
+    const donorLogout = await api(mixed,'/api/donor/logout',{method:'POST',headers:{Origin:base,'X-CSRF-Token':ownerState.csrf_token},data:{}});
+    assert.equal(donorLogout.status,200);
+    assert.equal((await donorState(mixed)).authenticated,false);
+    assert.equal((await api(mixed,'/api/auth/status')).data.authenticated,true,'Donor logout must leave admin authentication intact');
+    await donorPage.reload();
+    await openDonor(donorPage);
+    await visible(donorPage,'#donor-login');
+    await donorPage.locator('#donor-login').click();
+    await visible(donorPage,'#donor-logout');
+    const reauthenticated = await donorState(donorContext);
+    await mixed.addCookies(await donorContext.cookies(base));
+    const adminLogout = await api(mixed,'/api/auth/logout',{method:'POST',headers:{Origin:base,'X-CSRF-Token':adminState.csrf_token},data:{}});
+    assert.equal(adminLogout.status,204);
+    assert.equal((await api(mixed,'/api/auth/status')).data.authenticated,false);
+    assert.equal((await donorState(mixed)).user.id,reauthenticated.user.id,'Admin logout must leave the donor session intact');
+    await closeDonor(donorPage);
+    await mixed.close();
+  });
+
+  }
+  await donorLifecycleScenarios();
 
   assert.deepEqual(scriptErrors,[],'Uncaught browser JavaScript errors');
   assert.deepEqual(consoleErrors,[],'Unexpected console errors');

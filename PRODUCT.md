@@ -9,13 +9,13 @@ web
 Implementation choice: Go single binary with embedded plain HTML/CSS/JavaScript and pure-Go SQLite. Linux distributions should not require Node or a compiler to run releases. Packaging supports common native package formats, OCI container, and portable archive.
 
 ## Users
-People donating to the site owner; one administrator configuring text, payment methods, notifications, and recording offline donations.
+People donating as guests or optional Passkey account holders; one administrator configuring text, payment methods, notifications, and recording offline donations.
 
 ## Product Purpose
 Allow visitors to enter or choose an amount and donate using configured payment methods. Give the owner accurate confirmed payment records and aggregate statistics.
 
 ## Capabilities and Constraints
-Waffo Pancake primary provider, Stripe and PayPal adapters, configurable QR and payment links. Custom text, optional donor name/email/message. SQLite. Webhook notification includes donor, amount, currency, payment method, and time. Optional SMTP owner notifications. Statistics API. Manual donation entry and confirmation for offline payments. Hidden admin entrance after five logo activations. Administrator first uses CLI-only bootstrap password, binds Passkey, and password authentication is then disabled until CLI reset. No invented confirmed donations or payment support claims. Credentials are configured by the operator; never commit credentials or production data.
+Waffo Pancake primary provider, Stripe and PayPal adapters, configurable QR and payment links. Custom text, optional donor name/email/message. SQLite. Webhook notification includes donor, amount, currency, payment method, and time. Optional SMTP owner notifications. Statistics API. Manual donation entry and confirmation for offline payments. Hidden admin entrance after five logo activations. Administrator first uses CLI-only bootstrap password, binds Passkey, and password authentication is then disabled until CLI reset. Optional donor Passkey accounts have stable identity, private donation history and backup credentials, without admin privileges. Guest checkout stays available. No games or benefit promises are implemented. No invented confirmed donations or payment support claims. Credentials are configured by the operator; never commit credentials or production data.
 
 ## Brand Commitments
 The user specifies Donate as the title, a small animated ASCII coffee logo, and a strictly black-and-white minimal interface. No slogans, explanatory introductions, decorative dashboard icons, or large hero art. Optional custom copy remains editable and is blank by default. Donation currency defaults by language: zh-CN uses CNY, zh-TW uses TWD, and English uses USD.
