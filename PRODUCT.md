@@ -15,13 +15,13 @@ People donating to the site owner; one administrator configuring text, payment m
 Allow visitors to enter or choose an amount and donate using configured payment methods. Give the owner accurate confirmed payment records and aggregate statistics.
 
 ## Capabilities and Constraints
-Waffo Pancake primary provider, Stripe and PayPal adapters, configurable QR and payment links. Custom text, optional donor name/email/message. SQLite. Webhook notification includes donor, amount, currency, payment method, and time. Optional SMTP owner notifications. Statistics API. Manual donation entry and confirmation for offline payments. Hidden admin entrance after five logo activations. Administrator first uses CLI-only bootstrap password, binds Passkey, and password authentication is then disabled until CLI reset. No invented confirmed donations or payment support claims. Real provider credentials are absent.
+Waffo Pancake primary provider, Stripe and PayPal adapters, configurable QR and payment links. Custom text, optional donor name/email/message. SQLite. Webhook notification includes donor, amount, currency, payment method, and time. Optional SMTP owner notifications. Statistics API. Manual donation entry and confirmation for offline payments. Hidden admin entrance after five logo activations. Administrator first uses CLI-only bootstrap password, binds Passkey, and password authentication is then disabled until CLI reset. No invented confirmed donations or payment support claims. Credentials are configured by the operator; never commit credentials or production data.
 
 ## Brand Commitments
-User requests ASCII art and interactive token cloud, alive and striking, with no ordinary technology-company template. Default site name is 留一点燃料, editable in admin. Donation currency defaults by language: zh-CN uses CNY, zh-TW uses TWD, and English uses USD.
+The user specifies Donate as the title, a small animated ASCII coffee logo, and a strictly black-and-white minimal interface. No slogans, explanatory introductions, decorative dashboard icons, or large hero art. Optional custom copy remains editable and is blank by default. Donation currency defaults by language: zh-CN uses CNY, zh-TW uses TWD, and English uses USD.
 
 ## Product Principles
 Payment amount and action stay obvious. Only verified callbacks or administrator confirmation count as donated. Private donor information and credentials stay private. Admin setup and recovery work from local CLI.
 
 ## Open Decisions
-Hosting domain and merchant credentials will be supplied by operator. Default copy is editable placeholder content. Plain web stack selected for packaging requirement.
+Domain and payment credentials are operator configuration. Legal policies are short editable defaults. The plain web stack serves the Linux packaging requirement.

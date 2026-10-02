@@ -10,7 +10,7 @@ import {createServer} from 'node:net';
 import {chromium} from 'playwright';
 
 const root = resolve(import.meta.dirname, '..');
-const fixture = await mkdtemp(resolve(tmpdir(), 'token-browser-'));
+const fixture = await mkdtemp(resolve(tmpdir(), 'donate-browser-'));
 const dataDir = resolve(fixture, 'data');
 const binary = resolve(fixture, 'donate');
 const port = Number(process.env.DONATE_TEST_PORT || 8098);
@@ -38,6 +38,22 @@ async function textIncludes(page, selector, text) {
 async function noOverflow(page) {
   const size = await page.evaluate(() => ({width:innerWidth, content:document.documentElement.scrollWidth}));
   assert.ok(size.content <= size.width + 1, `Horizontal overflow: ${size.content} > ${size.width}`);
+}
+async function coffeeMotion(page) {
+  const logo = page.locator('pre.coffee-logo').first();
+  await logo.waitFor({state:'visible'});
+  const initial = await logo.textContent();
+  assert.ok(initial.includes('|    |)'), 'Coffee cup must contain recognizable ASCII art');
+  await page.waitForFunction(initial => document.querySelector('pre.coffee-logo')?.textContent !== initial, initial, {timeout:3000});
+  const animated = await logo.textContent();
+  assert.deepEqual(animated.split('\n').slice(-4), initial.split('\n').slice(-4), 'Coffee cup should stay fixed while steam moves');
+  await page.emulateMedia({reducedMotion:'reduce'});
+  await page.waitForTimeout(100);
+  const still = await logo.textContent();
+  await page.waitForTimeout(700);
+  assert.equal(await logo.textContent(), still, 'Reduced-motion preference must stop coffee animation');
+  await page.emulateMedia({reducedMotion:'no-preference'});
+  await page.waitForFunction(still => document.querySelector('pre.coffee-logo')?.textContent !== still, still, {timeout:3000});
 }
 async function api(context, path, options) {
   const response = await context.request.fetch(`${base}${path}`, options);
@@ -98,13 +114,30 @@ try {
   watch(admin);
   const authenticator = await addAuthenticator(admin);
 
-  await step('Public page: terms, privacy, token interaction, locale currency defaults, hidden administrator entrance', async () => {
+  await step('Minimal Donate page: no default copy, animated ASCII coffee, reduced motion, policies, locales, hidden administrator entrance', async () => {
     await admin.goto(base);
     await visible(admin, '#presets button');
     assert.equal(await admin.locator('#currency').inputValue(), 'USD');
     assert.equal(await admin.locator('#donate-button').isDisabled(), true);
-    await admin.locator('[data-token=coffee]').click();
-    assert.ok((await admin.locator('#token-response').textContent()).length);
+    assert.equal(await admin.title(), 'Donate');
+    assert.equal(await admin.locator('#site-name').textContent(), 'Donate');
+    assert.equal(await admin.locator('#scene, #ascii, .token-cloud, #motion-toggle, #token-response, #support-total, a[href="/api/stats"]').count(), 0);
+    for (const selector of ['#site-tagline','#site-description','#site-footer-text']) {
+      const element = admin.locator(selector);
+      if(await element.count()) {
+        assert.equal((await element.textContent()).trim(), '', `${selector} has unwanted default copy`);
+        await element.waitFor({state:'hidden'});
+      }
+    }
+    const defaults = (await api(adminContext,'/api/site')).data;
+    assert.equal(defaults.name,'Donate');
+    for(const field of ['tagline','description','footer']) assert.equal(defaults[field] || '', '', `Default ${field} is not blank`);
+    for(const copy of Object.values(defaults.translations || {})) {
+      for(const field of ['tagline','description','footer']) assert.equal(copy[field] || '', '', `Default translated ${field} is not blank`);
+    }
+    assert.equal(defaults.recent.length,0);
+    await hidden(admin,'#recent-support');
+    await coffeeMotion(admin);
     await admin.locator('[data-policy=terms]').first().click();
     await visible(admin, '#policy-dialog');
     await textIncludes(admin, '#policy-content', 'open-source');
@@ -118,13 +151,16 @@ try {
       assert.equal(await admin.locator('html').getAttribute('lang'),locale);
     }
     await noOverflow(admin);
-    await admin.screenshot({path:resolve(artifacts,'public-desktop.png'),fullPage:true});
+    await admin.screenshot({path:resolve(artifacts,'public-pristine-desktop.png'),fullPage:true});
     for(let count = 0; count < 4; count++) await admin.locator('#logo').click();
     assert.equal(new URL(admin.url()).pathname,'/');
     await admin.locator('#logo').click();
     await admin.waitForURL(`${base}/admin`);
     await admin.locator('#admin-language').selectOption('en');
     await visible(admin, '#password-form');
+    assert.equal(await admin.title(),'Donate');
+    assert.equal(await admin.locator('#brand-name').textContent(),'Donate');
+    await coffeeMotion(admin);
   });
 
   await step('CLI bootstrap password only grants enrollment; real WebAuthn enrollment disables password login', async () => {
@@ -134,7 +170,7 @@ try {
     assert.equal((await api(adminContext,'/api/admin/settings')).status,403);
     await admin.locator('#passkey-register').click();
     await visible(admin, '#admin-view');
-    await textIncludes(admin, '#ledger-list','No contributions');
+    await textIncludes(admin, '#ledger-list','No records');
     const state = (await api(adminContext,'/api/auth/status')).data;
     assert.equal(state.initialized,true);
     assert.equal(state.authenticated,true);
@@ -186,10 +222,10 @@ try {
 
   await step('Notifications and Waffo catalog show honest empty states; incomplete webhook settings are rejected', async () => {
     await admin.locator('[data-view=catalog]').click();
-    await textIncludes(admin,'#catalog-method','Add a Waffo');
+    await textIncludes(admin,'#catalog-method','Waffo not configured');
     assert.equal(await admin.locator('#load-stores').isDisabled(),true);
     await admin.locator('[data-view=notifications]').click();
-    await textIncludes(admin,'#notifications-list','No delivery history');
+    await textIncludes(admin,'#notifications-list','No records');
     await admin.locator('[name=webhook-enabled]').check();
     await save(admin,'#notifications-form',400);
     await visible(admin,'#notice.error');
@@ -250,7 +286,7 @@ try {
     assert.equal(response.status(),200,await response.text());
     await textIncludes(admin,'#notice','Payment confirmed');
     await publicPage.locator('#status-refresh').click();
-    await textIncludes(publicPage,'#checkout-title','arrived');
+    await textIncludes(publicPage,'#checkout-title','confirmed');
     await hidden(publicPage,'#checkout-qr');
     const stats = (await api(publicContext,'/api/stats?currency=USD')).data;
     assert.equal(stats.count,1);
@@ -260,7 +296,7 @@ try {
     assert.equal(site.recent[0].message,'ASCII keeps the project alive.');
     assert.ok(!JSON.stringify(site).includes('private-fixture@example.com'));
     await publicPage.reload();
-    await textIncludes(publicPage,'#checkout-title','arrived');
+    await textIncludes(publicPage,'#checkout-title','confirmed');
   });
 
   await step('Manual offline record: exact JPY units, private donor excluded from public list, statistics API access control', async () => {
@@ -291,7 +327,7 @@ try {
     await admin.screenshot({path:resolve(artifacts,'admin-ledger.png'),fullPage:true});
   });
 
-  await step('Desktop and narrow screens have no horizontal overflow; reduced-motion interaction can be paused', async () => {
+  await step('Donate desktop and narrow layouts have no horizontal overflow', async () => {
     await publicPage.goto(base);
     await visible(publicPage,'#presets button');
     await noOverflow(publicPage);
@@ -301,8 +337,8 @@ try {
     await publicPage.screenshot({path:resolve(artifacts,'public-mobile.png'),fullPage:true});
     await publicPage.setViewportSize({width:320,height:740});
     await noOverflow(publicPage);
-    await publicPage.locator('#motion-toggle').click();
-    assert.equal(await publicPage.locator('#motion-toggle').getAttribute('aria-pressed'),'true');
+    await visible(publicPage,'pre.coffee-logo');
+    await publicPage.screenshot({path:resolve(artifacts,'public-320.png'),fullPage:true});
     await admin.setViewportSize({width:390,height:844});
     for(const view of ['ledger','site','payments','catalog','notifications','api']) {
       await admin.locator(`[data-view=${view}]`).click();
@@ -310,6 +346,14 @@ try {
     }
     await admin.locator('[data-view=ledger]').click();
     await admin.screenshot({path:resolve(artifacts,'admin-mobile.png'),fullPage:true});
+    await admin.setViewportSize({width:320,height:740});
+    for(const view of ['ledger','site','payments','catalog','notifications','api']) {
+      await admin.locator(`[data-view=${view}]`).click();
+      await noOverflow(admin);
+    }
+    await admin.locator('[data-view=ledger]').click();
+    await visible(admin,'pre.coffee-logo');
+    await admin.screenshot({path:resolve(artifacts,'admin-320.png'),fullPage:true});
   });
 
   await step('CLI recovery revokes the existing session and all Passkeys; new enrollment restores administration', async () => {

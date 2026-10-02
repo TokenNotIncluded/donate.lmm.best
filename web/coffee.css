@@ -1,0 +1,27 @@
+.coffee-logo {
+  display: block;
+  flex: none;
+  width: 11ch;
+  height: 6.36em;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  color: inherit;
+  background: transparent;
+  font-family: ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
+  font-size: 9px;
+  font-weight: 400;
+  font-style: normal;
+  font-variant-ligatures: none;
+  line-height: 1.06;
+  letter-spacing: 0;
+  text-align: left;
+  text-indent: 0;
+  text-transform: none;
+  text-decoration: none;
+  white-space: pre;
+  user-select: none;
+  pointer-events: none;
+  -webkit-text-size-adjust: none;
+}

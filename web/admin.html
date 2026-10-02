@@ -5,15 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
   <meta name="robots" content="noindex, nofollow">
-  <title>留一点燃料 · 控制室</title>
+  <title>Donate</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/admin.css">
+  <link rel="stylesheet" href="/coffee.css">
+  <script defer src="/coffee.js"></script>
   <script type="module" src="/admin.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#main">跳到内容 / Skip to content</a>
   <header class="topbar">
-    <div class="brand-area"><a class="brand" href="/" aria-label="留一点燃料首页"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><path class="mark-orbit" d="M5 23c-3-4 0-10 7-14s14-5 16-1-1 10-8 14S7 27 5 23Z"/><path class="mark-letter" d="M16 8v16M8 16h16"/></svg></span><span id="brand-name">留一点燃料</span><span class="brand-dot" aria-hidden="true">.</span></a><span class="header-context" id="header-context" hidden></span></div>
+    <a class="brand" href="/" aria-label="Donate"><pre class="coffee-logo" aria-hidden="true">   )  (&#32;&#32;&#32;&#32;
+    (  )&#32;&#32;&#32;
+  .----.&#32;&#32;&#32;
+  |    |)&#32;&#32;
+  '----'&#32;&#32;&#32;
+ --------&#32;&#32;</pre><span id="brand-name">Donate</span></a>
     <div class="header-actions">
       <label class="visually-hidden" for="admin-language">语言 / Language</label>
       <select id="admin-language" aria-label="语言 / Language"><option value="zh-CN">简体中文</option><option value="zh-TW">繁體中文</option><option value="en">English</option></select>
@@ -24,23 +31,11 @@
   <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
   <main id="main" tabindex="-1">
     <span id="view-announcement" class="visually-hidden" role="status" aria-live="polite"></span>
-    <section id="auth-view" class="auth-layout" aria-labelledby="auth-title">
-      <div class="auth-intro">
-        <h1 id="auth-title" data-i18n="controlRoom">燃料控制室。</h1>
-        <p data-i18n="authIntro">让每一份支持都有着落。</p>
-        <pre class="auth-art" aria-hidden="true">       .     +        .
-    .      / \       *
-          / * \
-     ----(   +   )----
-          \ * /
-    +      \ /      .
-       .           +</pre>
-      </div>
+    <section id="auth-view" class="auth-layout" aria-labelledby="auth-step-title">
       <div class="auth-form-wrap">
         <p id="auth-loading" data-i18n="checkingSession">正在检查登录状态…</p>
         <div id="auth-ready" hidden>
           <h2 id="auth-step-title"></h2>
-          <p id="auth-description" class="muted"></p>
           <form id="password-form" hidden>
             <label for="bootstrap-password" data-i18n="bootstrapPassword">初始密码</label>
             <input id="bootstrap-password" name="password" type="password" autocomplete="current-password" required>
@@ -50,7 +45,7 @@
           <button type="button" id="passkey-register" class="primary full" hidden data-i18n="bindPasskey">绑定 Passkey</button>
           <p id="auth-error" class="inline-error" role="alert" hidden></p>
           <button type="button" id="auth-retry" class="quiet" hidden data-i18n="retry">重试</button>
-          <details class="recovery"><summary data-i18n="recovery">首次使用或丢失 Passkey？</summary><p data-i18n="recoveryIntro">在服务器上运行下面的命令。密码只用于绑定新的 Passkey。</p><code>donate admin password</code><p data-i18n="resetIntro">丢失 Passkey 后，重置登录：</p><code>donate admin reset</code><p data-i18n="dataDirHint">如服务使用自定义数据目录，命令也要指定相同的 --data-dir。</p></details>
+          <details class="recovery"><summary data-i18n="recovery">恢复登录</summary><dl><dt data-i18n="bootstrapPassword">初始密码</dt><dd><code>donate admin password</code></dd><dt data-i18n="resetLogin">重置登录</dt><dd><code>donate admin reset</code></dd></dl></details>
         </div>
       </div>
     </section>
@@ -58,33 +53,30 @@
       <aside class="sidebar">
         <div class="sidebar-body">
         <nav id="admin-nav" aria-label="管理后台 / Administration">
-          <div class="nav-group"><button type="button" data-view="ledger" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Z M9 8h6M9 12h4"/></svg><span data-i18n="ledger">捐款记录</span></button></div>
-          <div class="nav-group"><button type="button" data-view="site"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4Z M4 9h16M7 7h.1M10 7h.1M8 13h8M8 16h5"/></svg><span data-i18n="siteSettings">网站与文字</span></button>
-          <button type="button" data-view="payments"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18v12H3Z M3 10h18M6 15h3"/></svg><span data-i18n="paymentMethods">支付方式</span></button>
-          <button type="button" data-view="catalog"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z M4 7.5l8 4.5 8-4.5M12 12v9M8 5l8 4.5"/></svg><span data-i18n="waffoProducts">Waffo 产品</span></button>
-          <button type="button" data-view="notifications"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 17h14l-2-3V9a5 5 0 0 0-10 0v5l-2 3Z M10 20h4M12 3V2"/></svg><span data-i18n="notifications">通知</span></button>
-          <button type="button" data-view="api"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V4M4 20h16M8 16v-4M12 16V8M16 16V5"/></svg><span data-i18n="statsSecurity">统计与安全</span></button></div>
+          <div class="nav-group"><button type="button" data-view="ledger" aria-current="page"><span data-i18n="ledger">捐款记录</span></button></div>
+          <div class="nav-group"><button type="button" data-view="site"><span data-i18n="siteSettings">网站与文字</span></button>
+          <button type="button" data-view="payments"><span data-i18n="paymentMethods">支付方式</span></button>
+          <button type="button" data-view="catalog"><span data-i18n="waffoProducts">Waffo 产品</span></button>
+          <button type="button" data-view="notifications"><span data-i18n="notifications">通知</span></button>
+          <button type="button" data-view="api"><span data-i18n="statsSecurity">统计与安全</span></button></div>
         </nav>
-        <p class="sidebar-note" data-i18n="confirmedOnly">统计只计算已确认的捐款。</p>
-        <span class="session-label" data-i18n="passkeySession">Passkey 会话</span>
         </div>
       </aside>
       <div class="workspace">
         <section id="view-ledger" class="view" aria-labelledby="ledger-title">
-          <div class="section-head"><div><h1 id="ledger-title" data-i18n="ledger">捐款记录</h1><p class="muted" data-i18n="ledgerIntro">线上支付自动确认，自定义支付由你核实。</p></div><a id="export-link" href="/api/admin/export" class="button quiet"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4"/></svg><span data-i18n="exportCSV">导出 CSV</span></a></div>
+          <div class="section-head"><div><h1 id="ledger-title" data-i18n="ledger">捐款记录</h1></div><a id="export-link" href="/api/admin/export" class="button quiet"><span data-i18n="exportCSV">导出 CSV</span></a></div>
           <details class="manual-entry"><summary data-i18n="manualEntry">手动录入一笔捐款</summary><form id="manual-form" class="form-grid"></form></details>
           <div class="toolbar"><label for="ledger-status" data-i18n="filterStatus">状态</label><select id="ledger-status"><option value="" data-i18n="all">全部</option><option value="confirmed" data-i18n="paid">已确认</option><option value="pending" data-i18n="pending">待确认</option><option value="refunded" data-i18n="refunded">已退款</option></select><button type="button" id="ledger-refresh" class="quiet" data-i18n="refresh">刷新</button><span id="ledger-count" class="muted"></span></div>
           <div id="ledger-list" class="ledger-list" aria-live="polite"></div>
           <div class="pagination"><button type="button" id="ledger-prev" class="quiet" data-i18n="previous">上一页</button><span id="ledger-page"></span><button type="button" id="ledger-next" class="quiet" data-i18n="next">下一页</button></div>
         </section>
-        <section id="view-site" class="view" hidden aria-labelledby="site-title"><div class="section-head"><div><h1 id="site-title" data-i18n="siteSettings">网站与文字</h1><p class="muted" data-i18n="siteIntro">把这里变成你的地方。文字、语言、金额都能改。</p></div></div><form id="site-form"></form></section>
-        <section id="view-payments" class="view" hidden aria-labelledby="payments-title"><div class="section-head"><div><h1 id="payments-title" data-i18n="paymentMethods">支付方式</h1><p class="muted" data-i18n="paymentsIntro">先填写凭证，保存后启用。二维码支付需要人工核实。</p></div></div><form id="methods-form"></form><div class="add-method"><label for="new-method-type" data-i18n="addMethod">添加支付方式</label><select id="new-method-type"><option value="waffo">Waffo Pancake</option><option value="stripe">Stripe</option><option value="paypal">PayPal</option><option value="custom" data-i18n="customMethod">自定义二维码 / 链接</option></select><button type="button" id="add-method" class="quiet" data-i18n="add">添加</button></div></section>
-        <section id="view-catalog" class="view" hidden aria-labelledby="catalog-title"><div class="section-head"><div><h1 id="catalog-title" data-i18n="waffoProducts">Waffo 产品</h1><p class="muted" data-i18n="catalogIntro">绑定凭证、选择店铺，然后创建产品。重复提交同一操作只执行一次。</p></div></div><div class="catalog-controls form-grid"><div class="field"><label for="catalog-method" data-i18n="waffoAccount">Waffo 支付方式</label><select id="catalog-method"></select></div><div class="field"><label for="catalog-store" data-i18n="store">店铺</label><select id="catalog-store" disabled><option value="" data-i18n="selectStore">选择店铺</option></select></div><div class="actions span-all"><button type="button" id="load-stores" class="quiet" data-i18n="loadStores">连接并读取店铺</button><button type="button" id="load-products" class="quiet" disabled data-i18n="refreshProducts">刷新产品</button><button type="button" id="use-store" class="quiet" disabled data-i18n="useStore">设为支付店铺</button></div></div><p id="catalog-status" class="muted" role="status"></p><form id="product-form"></form><div id="products-list" class="products-list"></div></section>
-        <section id="view-notifications" class="view" hidden aria-labelledby="notifications-title"><div class="section-head"><div><h1 id="notifications-title" data-i18n="notifications">通知</h1><p class="muted" data-i18n="notificationsIntro">收到确认后，把捐款人、时间、支付方式和金额送到你指定的地址。</p></div></div><form id="notifications-form"></form><div class="section-head compact"><h2 data-i18n="deliveryHistory">发送记录</h2><button type="button" id="notifications-refresh" class="quiet" data-i18n="refresh">刷新</button></div><div id="notifications-list" class="notifications-list"></div></section>
-        <section id="view-api" class="view" hidden aria-labelledby="api-title"><div class="section-head"><div><h1 id="api-title" data-i18n="statsSecurity">统计与安全</h1><p class="muted" data-i18n="statsIntro">各币种分别统计。API 不会公开捐款人的邮箱。</p></div></div><div class="toolbar"><label for="stats-currency" data-i18n="currency">币种</label><select id="stats-currency"></select><button type="button" id="stats-refresh" class="quiet" data-i18n="refreshStats">读取统计</button></div><pre id="stats-result" class="api-result" aria-live="polite"></pre><div class="config-section"><h2 data-i18n="statsAPI">统计 API</h2><p data-i18n="publicStats">公开汇总接口：</p><code>GET /api/stats?currency=USD</code><p data-i18n="privateStats">私有接口使用 Bearer Token，请保管好：</p><code>GET /api/private/stats</code><div class="field"><label for="stats-token" data-i18n="statsToken">统计 Token</label><input id="stats-token" type="password" readonly autocomplete="off"><div class="actions"><button type="button" id="reveal-token" class="quiet" data-i18n="showHide">显示 / 隐藏</button><button type="button" id="copy-token" class="quiet" data-i18n="copyToken">复制 Token</button><button type="button" id="rotate-token" class="quiet" data-i18n="rotateToken">更新 Token</button></div></div></div><div class="config-section"><h2 data-i18n="loginSecurity">登录安全</h2><p id="passkey-count"></p><button type="button" id="add-passkey" class="quiet" data-i18n="addPasskey">添加备用 Passkey</button><p class="muted" data-i18n="securityExplanation">绑定 Passkey 后密码登录关闭。全部 Passkey 丢失时，在服务器运行 donate admin reset，再重新绑定。</p></div></section>
+        <section id="view-site" class="view" hidden aria-labelledby="site-title"><div class="section-head"><div><h1 id="site-title" data-i18n="siteSettings">网站与文字</h1></div></div><form id="site-form"></form></section>
+        <section id="view-payments" class="view" hidden aria-labelledby="payments-title"><div class="section-head"><div><h1 id="payments-title" data-i18n="paymentMethods">支付方式</h1></div></div><form id="methods-form"></form><div class="add-method"><label for="new-method-type" data-i18n="addMethod">添加支付方式</label><select id="new-method-type"><option value="waffo">Waffo Pancake</option><option value="stripe">Stripe</option><option value="paypal">PayPal</option><option value="custom" data-i18n="customMethod">自定义二维码 / 链接</option></select><button type="button" id="add-method" class="quiet" data-i18n="add">添加</button></div></section>
+        <section id="view-catalog" class="view" hidden aria-labelledby="catalog-title"><div class="section-head"><div><h1 id="catalog-title" data-i18n="waffoProducts">Waffo 产品</h1></div></div><div class="catalog-controls form-grid"><div class="field"><label for="catalog-method" data-i18n="waffoAccount">Waffo 支付方式</label><select id="catalog-method"></select></div><div class="field"><label for="catalog-store" data-i18n="store">店铺</label><select id="catalog-store" disabled><option value="" data-i18n="selectStore">选择店铺</option></select></div><div class="actions span-all"><button type="button" id="load-stores" class="quiet" data-i18n="loadStores">连接并读取店铺</button><button type="button" id="load-products" class="quiet" disabled data-i18n="refreshProducts">刷新产品</button><button type="button" id="use-store" class="quiet" disabled data-i18n="useStore">设为支付店铺</button></div></div><p id="catalog-status" class="muted" role="status"></p><form id="product-form"></form><div id="products-list" class="products-list"></div></section>
+        <section id="view-notifications" class="view" hidden aria-labelledby="notifications-title"><div class="section-head"><div><h1 id="notifications-title" data-i18n="notifications">通知</h1></div></div><form id="notifications-form"></form><div class="section-head compact"><h2 data-i18n="deliveryHistory">发送记录</h2><button type="button" id="notifications-refresh" class="quiet" data-i18n="refresh">刷新</button></div><div id="notifications-list" class="notifications-list"></div></section>
+        <section id="view-api" class="view" hidden aria-labelledby="api-title"><div class="section-head"><div><h1 id="api-title" data-i18n="statsSecurity">统计与安全</h1></div></div><div class="toolbar"><label for="stats-currency" data-i18n="currency">币种</label><select id="stats-currency"></select><button type="button" id="stats-refresh" class="quiet" data-i18n="refreshStats">读取统计</button></div><pre id="stats-result" class="api-result" aria-live="polite"></pre><div class="config-section"><h2 data-i18n="statsAPI">统计 API</h2><h3 data-i18n="publicStats">公开接口</h3><code>GET /api/stats?currency=USD</code><h3 data-i18n="privateStats">私有接口</h3><code>GET /api/private/stats</code><div class="field"><label for="stats-token" data-i18n="statsToken">统计 Token</label><input id="stats-token" type="password" readonly autocomplete="off"><div class="actions"><button type="button" id="reveal-token" class="quiet" data-i18n="showHide">显示 / 隐藏</button><button type="button" id="copy-token" class="quiet" data-i18n="copyToken">复制 Token</button><button type="button" id="rotate-token" class="quiet" data-i18n="rotateToken">更新 Token</button></div></div></div><div class="config-section"><h2 data-i18n="loginSecurity">登录安全</h2><p id="passkey-count"></p><button type="button" id="add-passkey" class="quiet" data-i18n="addPasskey">添加备用 Passkey</button></div></section>
       </div>
     </div>
   </main>
-  <footer class="admin-footer"><span>留一点燃料 / CONTROL ROOM</span><span data-i18n="ownerOnly">仅管理员可访问</span></footer>
 </body>
 </html>

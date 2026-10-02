@@ -285,7 +285,7 @@ func (a *App) serveAssets(w http.ResponseWriter, r *http.Request) {
 // combined with the current HTML. Query strings do not alter the served path.
 func (a *App) versionStaticHTML(content []byte) ([]byte, error) {
 	var replacements []string
-	for _, name := range []string{"favicon.svg", "style.css", "app.js", "admin.css", "admin.js"} {
+	for _, name := range []string{"favicon.svg", "style.css", "app.js", "admin.css", "admin.js", "coffee.css", "coffee.js"} {
 		var references []string
 		for _, attribute := range []string{"href", "src"} {
 			for _, quote := range []string{`"`, `'`} {

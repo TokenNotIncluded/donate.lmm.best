@@ -101,7 +101,7 @@ func New(db *sql.DB, dataDir, publicURL string) (*Manager, error) {
 	}
 	origin := u.Scheme + "://" + strings.ToLower(u.Host)
 	wa, err := webauthn.New(&webauthn.Config{
-		RPID: hostname, RPDisplayName: "留一点燃料", RPOrigins: []string{origin},
+		RPID: hostname, RPDisplayName: "Donate", RPOrigins: []string{origin},
 		AttestationPreference:  protocol.PreferNoAttestation,
 		AuthenticatorSelection: protocol.AuthenticatorSelection{RequireResidentKey: protocol.ResidentKeyRequired(), ResidentKey: protocol.ResidentKeyRequirementRequired, UserVerification: protocol.VerificationRequired},
 		Timeouts: webauthn.TimeoutsConfig{

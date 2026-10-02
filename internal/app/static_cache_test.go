@@ -12,10 +12,12 @@ import (
 
 func TestStaticHTMLVersionsResourceContents(t *testing.T) {
 	assets := fstest.MapFS{
-		"index.html":  {Data: []byte(`<link href="/favicon.svg"><link href='/style.css'><script src="/app.js"></script><a href="/">home</a>`)},
-		"admin.html":  {Data: []byte(`<link href='/favicon.svg'><link href="/admin.css"><script src='/admin.js'></script><a href="/api/admin/export">export</a>`)},
+		"index.html":  {Data: []byte(`<link href="/favicon.svg"><link href='/style.css'><script src="/app.js"></script><link href="/coffee.css"><script src="/coffee.js"></script><a href="/">home</a>`)},
+		"admin.html":  {Data: []byte(`<link href='/favicon.svg'><link href="/admin.css"><script src='/admin.js'></script><link href='/coffee.css'><script src='/coffee.js'></script><a href="/api/admin/export">export</a>`)},
 		"favicon.svg": {Data: []byte(`<svg></svg>`)},
-		"style.css":   {Data: []byte(`body { color: lime; }`)},
+		"style.css":   {Data: []byte(`body { color: white; }`)},
+		"coffee.css":  {Data: []byte(`.coffee-logo { white-space: pre; }`)},
+		"coffee.js":   {Data: []byte(`console.log("coffee");`)},
 		"app.js":      {Data: []byte(`console.log("public");`)},
 		"admin.css":   {Data: []byte(`nav { display: flex; }`)},
 		"admin.js":    {Data: []byte(`console.log("admin");`)},
@@ -36,11 +38,11 @@ func TestStaticHTMLVersionsResourceContents(t *testing.T) {
 		resources []string
 		unchanged string
 	}{
-		{"/", []string{"favicon.svg", "style.css", "app.js"}, `<a href="/">home</a>`},
-		{"/index.html", []string{"favicon.svg", "style.css", "app.js"}, `<a href="/">home</a>`},
-		{"/admin", []string{"favicon.svg", "admin.css", "admin.js"}, `<a href="/api/admin/export">export</a>`},
-		{"/admin/", []string{"favicon.svg", "admin.css", "admin.js"}, `<a href="/api/admin/export">export</a>`},
-		{"/admin.html", []string{"favicon.svg", "admin.css", "admin.js"}, `<a href="/api/admin/export">export</a>`},
+		{"/", []string{"favicon.svg", "style.css", "app.js", "coffee.css", "coffee.js"}, `<a href="/">home</a>`},
+		{"/index.html", []string{"favicon.svg", "style.css", "app.js", "coffee.css", "coffee.js"}, `<a href="/">home</a>`},
+		{"/admin", []string{"favicon.svg", "admin.css", "admin.js", "coffee.css", "coffee.js"}, `<a href="/api/admin/export">export</a>`},
+		{"/admin/", []string{"favicon.svg", "admin.css", "admin.js", "coffee.css", "coffee.js"}, `<a href="/api/admin/export">export</a>`},
+		{"/admin.html", []string{"favicon.svg", "admin.css", "admin.js", "coffee.css", "coffee.js"}, `<a href="/api/admin/export">export</a>`},
 	} {
 		t.Run(page.target, func(t *testing.T) {
 			rr := get(t, page.target)
@@ -59,7 +61,7 @@ func TestStaticHTMLVersionsResourceContents(t *testing.T) {
 			}
 		})
 	}
-	for _, path := range []string{"favicon.svg", "style.css", "app.js", "admin.css", "admin.js"} {
+	for _, path := range []string{"favicon.svg", "style.css", "app.js", "admin.css", "admin.js", "coffee.css", "coffee.js"} {
 		t.Run(path, func(t *testing.T) {
 			rr := get(t, versionedURL(path))
 			if got := rr.Body.String(); got != string(assets[path].Data) {
