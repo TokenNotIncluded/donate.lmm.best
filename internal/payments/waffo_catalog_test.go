@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -111,6 +112,12 @@ func TestWaffoProductsPaginatesAndConvertsGraphQLPrices(t *testing.T) {
 	s := &Service{Client: &http.Client{Transport: catalogRoundTripper(func(req *http.Request) (*http.Response, error) {
 		input := catalogReadBody(t, req)
 		query := input["query"].(string)
+		// Live introspection confirms storeId is an onetimeProducts argument,
+		// not a field in OnetimeProductFilter. Model that schema restriction so
+		// an otherwise permissive JSON fixture cannot accept the old query.
+		if !regexp.MustCompile(`onetimeProducts\s*\(\s*storeId\s*:\s*\$storeId\b`).MatchString(query) || regexp.MustCompile(`\bstoreId\s*:\s*\{`).MatchString(query) {
+			t.Fatalf("product query must use top-level storeId variable, not filter.storeId: %s", query)
+		}
 		if !strings.Contains(query, "prices { currency priceInfo { amount taxCategory } }") || strings.Contains(query, "status: { eq:") {
 			t.Fatalf("invalid product query: %s", query)
 		}

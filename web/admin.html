@@ -13,7 +13,7 @@
 <body>
   <a class="skip-link" href="#main">跳到内容 / Skip to content</a>
   <header class="topbar">
-    <a class="brand" href="/" aria-label="TOKEN home"><span class="brand-mark" aria-hidden="true">[ * ]</span><span id="brand-name">TOKEN</span></a>
+    <div class="brand-area"><a class="brand" href="/" aria-label="TOKEN home"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><path class="mark-orbit" d="M5 23c-3-4 0-10 7-14s14-5 16-1-1 10-8 14S7 27 5 23Z"/><path class="mark-letter" d="M10 11h12M16 11v13M10 9v4M22 9v4"/></svg></span><span id="brand-name">TOKEN</span><span class="brand-dot" aria-hidden="true">.</span></a><span class="header-context" id="header-context" hidden></span></div>
     <div class="header-actions">
       <label class="visually-hidden" for="admin-language">语言 / Language</label>
       <select id="admin-language" aria-label="语言 / Language"><option value="zh-CN">简体中文</option><option value="zh-TW">繁體中文</option><option value="en">English</option></select>
@@ -23,6 +23,7 @@
   </header>
   <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
   <main id="main" tabindex="-1">
+    <span id="view-announcement" class="visually-hidden" role="status" aria-live="polite"></span>
     <section id="auth-view" class="auth-layout" aria-labelledby="auth-title">
       <div class="auth-intro">
         <h1 id="auth-title" data-i18n="controlRoom">燃料控制室。</h1>
@@ -56,19 +57,19 @@
     <div id="admin-view" class="admin-layout" hidden>
       <aside class="sidebar">
         <nav id="admin-nav" aria-label="管理后台 / Administration">
-          <button type="button" data-view="ledger" aria-current="page" data-i18n="ledger">捐款记录</button>
-          <button type="button" data-view="site" data-i18n="siteSettings">网站与文字</button>
-          <button type="button" data-view="payments" data-i18n="paymentMethods">支付方式</button>
-          <button type="button" data-view="catalog" data-i18n="waffoProducts">Waffo 产品</button>
-          <button type="button" data-view="notifications" data-i18n="notifications">通知</button>
-          <button type="button" data-view="api" data-i18n="statsSecurity">统计与安全</button>
+          <div class="nav-group"><button type="button" data-view="ledger" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Z M9 8h6M9 12h4"/></svg><span data-i18n="ledger">捐款记录</span></button></div>
+          <div class="nav-group"><button type="button" data-view="site"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4Z M4 9h16M7 7h.1M10 7h.1M8 13h8M8 16h5"/></svg><span data-i18n="siteSettings">网站与文字</span></button>
+          <button type="button" data-view="payments"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18v12H3Z M3 10h18M6 15h3"/></svg><span data-i18n="paymentMethods">支付方式</span></button>
+          <button type="button" data-view="catalog"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z M4 7.5l8 4.5 8-4.5M12 12v9M8 5l8 4.5"/></svg><span data-i18n="waffoProducts">Waffo 产品</span></button>
+          <button type="button" data-view="notifications"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 17h14l-2-3V9a5 5 0 0 0-10 0v5l-2 3Z M10 20h4M12 3V2"/></svg><span data-i18n="notifications">通知</span></button>
+          <button type="button" data-view="api"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V4M4 20h16M8 16v-4M12 16V8M16 16V5"/></svg><span data-i18n="statsSecurity">统计与安全</span></button></div>
         </nav>
         <p class="sidebar-note" data-i18n="confirmedOnly">统计只计算已确认的捐款。</p>
         <span class="session-label" data-i18n="passkeySession">Passkey 会话</span>
       </aside>
       <div class="workspace">
         <section id="view-ledger" class="view" aria-labelledby="ledger-title">
-          <div class="section-head"><div><h1 id="ledger-title" data-i18n="ledger">捐款记录</h1><p class="muted" data-i18n="ledgerIntro">线上支付自动确认，自定义支付由你核实。</p></div><a id="export-link" href="/api/admin/export" class="button quiet" data-i18n="exportCSV">导出 CSV</a></div>
+          <div class="section-head"><div><h1 id="ledger-title" data-i18n="ledger">捐款记录</h1><p class="muted" data-i18n="ledgerIntro">线上支付自动确认，自定义支付由你核实。</p></div><a id="export-link" href="/api/admin/export" class="button quiet"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4"/></svg><span data-i18n="exportCSV">导出 CSV</span></a></div>
           <details class="manual-entry"><summary data-i18n="manualEntry">手动录入一笔捐款</summary><form id="manual-form" class="form-grid"></form></details>
           <div class="toolbar"><label for="ledger-status" data-i18n="filterStatus">状态</label><select id="ledger-status"><option value="" data-i18n="all">全部</option><option value="confirmed" data-i18n="paid">已确认</option><option value="pending" data-i18n="pending">待确认</option><option value="refunded" data-i18n="refunded">已退款</option></select><button type="button" id="ledger-refresh" class="quiet" data-i18n="refresh">刷新</button><span id="ledger-count" class="muted"></span></div>
           <div id="ledger-list" class="ledger-list" aria-live="polite"></div>

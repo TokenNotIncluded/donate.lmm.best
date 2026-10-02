@@ -29,6 +29,8 @@
 
 商品 `prices` 按币种返回，例如 `{ "USD": { "amount_minor": 500, "tax_category": "digital_goods" } }`。目录使用签名的 merchant GraphQL，只读查询；商品列表包含启用和停用商品，并按每页 100 条读取，最多 10000 条。REST 与 GraphQL 的价格格式不同，服务器负责转换为整数最小货币单位。
 
+商品列表的实际 schema 使用顶层 `onetimeProducts(storeId: $storeId, limit: $limit, offset: $offset)`，`OnetimeProductFilter` 不包含 `storeId`。单个商品查询 `onetimeProduct(id: $id)` 的 `$id` 类型为 `String!`。部分官网例子仍采用旧筛选字段或 `ID!`；实现以实际只读 introspection 与官方 SDK 示例核对后的 schema 为准。
+
 创建商品：
 
 ```http

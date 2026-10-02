@@ -38,6 +38,13 @@ function translateStatic() {
   $('#admin-language').value = locale;
   $$('[data-i18n]').forEach(element => { element.textContent = t(element.dataset.i18n); });
   document.title = `${settings?.site?.name || 'TOKEN'} · ${t('controlRoom')}`;
+  updateHeaderContext();
+}
+function updateHeaderContext() {
+  const label = t({ledger:'ledger',site:'siteSettings',payments:'paymentMethods',catalog:'waffoProducts',notifications:'notifications',api:'statsSecurity'}[currentView] || 'ledger');
+  $('#header-context').textContent = label;
+  $('#header-context').hidden = !auth.authenticated;
+  return label;
 }
 function notify(message, error = false) {
   clearTimeout(noticeTimer);
@@ -140,6 +147,7 @@ async function checkAuth() {
   $('#auth-view').hidden = !!auth.authenticated;
   $('#admin-view').hidden = !auth.authenticated;
   $('#logout').hidden = !auth.authenticated && !auth.needs_passkey;
+  updateHeaderContext();
   renderAuth();
   return auth;
 }
@@ -366,6 +374,7 @@ async function selectProduct(productId, storeId, methodId) {
 }
 async function showView(view) {
   currentView = view;
+  $('#view-announcement').textContent = updateHeaderContext();
   $$('#admin-nav button').forEach(button => {if(button.dataset.view === view) button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');});
   $$('.view').forEach(section => { section.hidden = section.id !== `view-${view}`; });
   if(view === 'notifications') await loadNotifications();

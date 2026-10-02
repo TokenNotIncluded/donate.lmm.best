@@ -122,7 +122,7 @@ func (s *Service) WaffoProducts(ctx context.Context, m Method, storeID string) (
 	for offset := 0; offset < 10_000; offset += pageSize {
 		raw, err := client.GraphQL.Query(ctx, pancake.GraphQLParams{
 			Query: `query ($storeId: String!, $limit: Int!, $offset: Int!) {
-				onetimeProducts(filter: { storeId: { eq: $storeId } }, limit: $limit, offset: $offset) {
+				onetimeProducts(storeId: $storeId, limit: $limit, offset: $offset) {
 					id name description status hasProdVersion
 					prices { currency priceInfo { amount taxCategory } }
 				}
