@@ -1,0 +1,83 @@
+package app
+
+import (
+	"crypto/sha256"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"testing/fstest"
+)
+
+func TestStaticHTMLVersionsResourceContents(t *testing.T) {
+	assets := fstest.MapFS{
+		"index.html":  {Data: []byte(`<link href="/favicon.svg"><link href='/style.css'><script src="/app.js"></script><a href="/">home</a>`)},
+		"admin.html":  {Data: []byte(`<link href='/favicon.svg'><link href="/admin.css"><script src='/admin.js'></script><a href="/api/admin/export">export</a>`)},
+		"favicon.svg": {Data: []byte(`<svg></svg>`)},
+		"style.css":   {Data: []byte(`body { color: lime; }`)},
+		"app.js":      {Data: []byte(`console.log("public");`)},
+		"admin.css":   {Data: []byte(`nav { display: flex; }`)},
+		"admin.js":    {Data: []byte(`console.log("admin");`)},
+	}
+	a := &App{assets: assets}
+	get := func(t *testing.T, target string) *httptest.ResponseRecorder {
+		t.Helper()
+		rr := httptest.NewRecorder()
+		a.serveAssets(rr, httptest.NewRequest(http.MethodGet, target, nil))
+		expectStatus(t, rr, http.StatusOK)
+		return rr
+	}
+	versionedURL := func(path string) string {
+		return "/" + path + fmt.Sprintf("?v=%x", sha256.Sum256(assets[path].Data))
+	}
+	for _, page := range []struct {
+		target    string
+		resources []string
+		unchanged string
+	}{
+		{"/", []string{"favicon.svg", "style.css", "app.js"}, `<a href="/">home</a>`},
+		{"/index.html", []string{"favicon.svg", "style.css", "app.js"}, `<a href="/">home</a>`},
+		{"/admin", []string{"favicon.svg", "admin.css", "admin.js"}, `<a href="/api/admin/export">export</a>`},
+		{"/admin/", []string{"favicon.svg", "admin.css", "admin.js"}, `<a href="/api/admin/export">export</a>`},
+		{"/admin.html", []string{"favicon.svg", "admin.css", "admin.js"}, `<a href="/api/admin/export">export</a>`},
+	} {
+		t.Run(page.target, func(t *testing.T) {
+			rr := get(t, page.target)
+			if got := rr.Header().Get("Cache-Control"); got != "no-cache" {
+				t.Fatalf("HTML Cache-Control = %q, want no-cache", got)
+			}
+			body := rr.Body.String()
+			for _, path := range page.resources {
+				want := versionedURL(path)
+				if !strings.Contains(body, `"`+want+`"`) && !strings.Contains(body, `'`+want+`'`) {
+					t.Errorf("HTML does not reference resource content hash %q: %s", want, body)
+				}
+			}
+			if !strings.Contains(body, page.unchanged) {
+				t.Errorf("unrelated navigation changed: %s", body)
+			}
+		})
+	}
+	for _, path := range []string{"favicon.svg", "style.css", "app.js", "admin.css", "admin.js"} {
+		t.Run(path, func(t *testing.T) {
+			rr := get(t, versionedURL(path))
+			if got := rr.Body.String(); got != string(assets[path].Data) {
+				t.Fatalf("versioned resource body = %q, want %q", got, assets[path].Data)
+			}
+			if got := rr.Header().Get("Cache-Control"); got != "public, max-age=3600" {
+				t.Fatalf("resource Cache-Control = %q, want public, max-age=3600", got)
+			}
+		})
+	}
+
+	oldScriptURL, oldStyleURL := versionedURL("app.js"), versionedURL("style.css")
+	assets["app.js"].Data = []byte(`console.log("new public release");`)
+	body := get(t, "/").Body.String()
+	if strings.Contains(body, oldScriptURL) || !strings.Contains(body, versionedURL("app.js")) {
+		t.Fatalf("changed script still uses old version: %s", body)
+	}
+	if !strings.Contains(body, oldStyleURL) {
+		t.Fatalf("unchanged stylesheet version changed: %s", body)
+	}
+}

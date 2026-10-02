@@ -270,7 +270,48 @@ func (a *App) serveAssets(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if path == "index.html" || path == "admin.html" {
+		content, err = a.versionStaticHTML(content)
+		if err != nil {
+			http.Error(w, "页面资源加载失败", http.StatusInternalServerError)
+			return
+		}
+	}
 	http.ServeContent(w, r, path, time.Time{}, bytes.NewReader(content))
+}
+
+// HTML is revalidated on every load. Give its embedded dependencies URLs that
+// change with their content, so a previous release's cached CSS or JS cannot be
+// combined with the current HTML. Query strings do not alter the served path.
+func (a *App) versionStaticHTML(content []byte) ([]byte, error) {
+	var replacements []string
+	for _, name := range []string{"favicon.svg", "style.css", "app.js", "admin.css", "admin.js"} {
+		var references []string
+		for _, attribute := range []string{"href", "src"} {
+			for _, quote := range []string{`"`, `'`} {
+				reference := attribute + "=" + quote + "/" + name + quote
+				if bytes.Contains(content, []byte(reference)) {
+					references = append(references, reference)
+				}
+			}
+		}
+		if len(references) == 0 {
+			continue
+		}
+		resource, err := fs.ReadFile(a.assets, name)
+		if err != nil {
+			return nil, err
+		}
+		sum := sha256.Sum256(resource)
+		version := "?v=" + hex.EncodeToString(sum[:])
+		for _, reference := range references {
+			replacements = append(replacements, reference, reference[:len(reference)-1]+version+reference[len(reference)-1:])
+		}
+	}
+	if len(replacements) == 0 {
+		return content, nil
+	}
+	return []byte(strings.NewReplacer(replacements...).Replace(string(content))), nil
 }
 func (a *App) originOK(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
