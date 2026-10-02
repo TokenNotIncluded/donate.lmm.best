@@ -1,0 +1,35 @@
+[Unit]
+Description=TOKEN donation site
+Documentation=https://github.com/TokenNotIncluded/donate.lmm.best
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=donate
+Group=donate
+EnvironmentFile=/etc/donate/donate.env
+ExecStart=/usr/bin/donate serve
+WorkingDirectory=/var/lib/donate
+StateDirectory=donate
+StateDirectoryMode=0700
+UMask=0077
+Restart=on-failure
+RestartSec=3s
+TimeoutStopSec=30s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/donate
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

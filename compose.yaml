@@ -1,0 +1,27 @@
+services:
+  donate:
+    build:
+      context: .
+      args:
+        VERSION: ${DONATE_VERSION:-dev}
+    image: donate:local
+    restart: unless-stopped
+    environment:
+      DONATE_ADDR: 0.0.0.0:8080
+      DONATE_DATA_DIR: /var/lib/donate
+      DONATE_PUBLIC_URL: ${DONATE_PUBLIC_URL:-http://localhost:8080}
+    ports:
+      - "127.0.0.1:${DONATE_HOST_PORT:-8080}:8080"
+    volumes:
+      - donate-data:/var/lib/donate
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+
+volumes:
+  donate-data:

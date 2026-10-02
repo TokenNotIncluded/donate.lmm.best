@@ -1,0 +1,16 @@
+/build/
+/dist/
+/data/
+/.env
+/node_modules/
+/test-results/
+/playwright-report/
+/output/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+*.db-shm
+*.db-wal
+*.log
+.DS_Store

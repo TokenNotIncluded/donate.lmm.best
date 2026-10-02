@@ -1,0 +1,164 @@
+version: 2
+project_name: donate
+
+builds:
+  - id: donate
+    main: ./cmd/donate
+    binary: donate
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    goamd64:
+      - v1
+    flags:
+      - -trimpath
+      - -buildvcs=false
+      - -mod=readonly
+    ldflags:
+      - -s -w -buildid= -X main.version={{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: portable
+    ids:
+      - donate
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    builds_info:
+      owner: root
+      group: root
+      mtime: "{{ .CommitDate }}"
+    files:
+      - src: README.md
+        info: &archive_file_info
+          owner: root
+          group: root
+          mode: 0644
+          mtime: "{{ .CommitDate }}"
+      - src: LICENSE
+        info: *archive_file_info
+      - src: web/fonts/OFL.txt
+        info: *archive_file_info
+      - src: docs/DEPLOYMENT.md
+        info: *archive_file_info
+      - src: docs/PAYMENTS.md
+        info: *archive_file_info
+      - src: docs/WAFFO-CATALOG.md
+        info: *archive_file_info
+      - src: packaging/donate.env
+        info: *archive_file_info
+      - src: packaging/donate.service
+        info: *archive_file_info
+      - src: packaging/donate.openrc
+        info:
+          <<: *archive_file_info
+          mode: 0755
+
+nfpms:
+  - id: linux
+    ids:
+      - donate
+    package_name: donate
+    file_name_template: "{{ .ConventionalFileName }}"
+    homepage: https://github.com/TokenNotIncluded/donate.lmm.best
+    maintainer: TokenNotIncluded <328455637+TokenNotIncluded@users.noreply.github.com>
+    description: A self-hosted donation page with passkeys, SQLite, and multiple payment methods.
+    license: MIT
+    section: web
+    priority: optional
+    bindir: /usr/bin
+    formats:
+      - deb
+      - rpm
+      - apk
+      - archlinux
+    dependencies:
+      - ca-certificates
+    mtime: "{{ .CommitDate }}"
+    contents:
+      - dst: /etc/donate
+        type: dir
+        file_info:
+          mode: 0750
+          owner: root
+          group: root
+          mtime: "{{ .CommitDate }}"
+      - src: packaging/donate.env
+        dst: /etc/donate/donate.env
+        type: config|noreplace
+        file_info:
+          mode: 0640
+          mtime: "{{ .CommitDate }}"
+      - src: packaging/donate.service
+        dst: /usr/lib/systemd/system/donate.service
+        file_info:
+          mode: 0644
+          mtime: "{{ .CommitDate }}"
+      - src: packaging/donate.openrc
+        dst: /etc/init.d/donate
+        packager: apk
+        file_info:
+          mode: 0755
+          mtime: "{{ .CommitDate }}"
+      - src: README.md
+        dst: /usr/share/doc/donate/README.md
+      - src: docs/DEPLOYMENT.md
+        dst: /usr/share/doc/donate/DEPLOYMENT.md
+      - src: docs/PAYMENTS.md
+        dst: /usr/share/doc/donate/PAYMENTS.md
+      - src: docs/WAFFO-CATALOG.md
+        dst: /usr/share/doc/donate/WAFFO-CATALOG.md
+      - src: LICENSE
+        dst: /usr/share/licenses/donate/LICENSE
+      - src: web/fonts/OFL.txt
+        dst: /usr/share/licenses/donate/Syne-OFL.txt
+    scripts:
+      preinstall: packaging/preinstall.sh
+      postinstall: packaging/postinstall.sh
+      preremove: packaging/preremove.sh
+      postremove: packaging/postremove.sh
+    overrides:
+      deb:
+        dependencies:
+          - ca-certificates
+          - passwd
+      rpm:
+        dependencies:
+          - ca-certificates
+          - shadow-utils
+      archlinux:
+        dependencies:
+          - ca-certificates
+          - shadow
+    apk:
+      scripts:
+        preupgrade: packaging/preinstall.sh
+        postupgrade: packaging/postinstall.sh
+    archlinux:
+      packager: TokenNotIncluded <328455637+TokenNotIncluded@users.noreply.github.com>
+      scripts:
+        preupgrade: packaging/preinstall.sh
+        postupgrade: packaging/postinstall.sh
+    rpm:
+      buildhost: reproducible
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^chore:'
+      - '^docs:'
+      - '^test:'
+
+release:
+  draft: true
+  prerelease: auto

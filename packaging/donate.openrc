@@ -1,0 +1,25 @@
+#!/sbin/openrc-run
+# shellcheck shell=sh
+# shellcheck disable=SC2034
+name="TOKEN donation site"
+description="Donation site with passkeys and SQLite"
+command="/usr/bin/donate"
+command_args="serve"
+command_user="donate:donate"
+supervisor="supervise-daemon"
+directory="/var/lib/donate"
+umask="0077"
+
+depend() {
+    need net
+    after firewall
+}
+
+start_pre() {
+    checkpath --directory --mode 0700 --owner donate:donate /var/lib/donate
+    # This file uses shell-compatible KEY=value entries, also read by systemd.
+    set -a
+    # shellcheck source=/dev/null
+    . /etc/donate/donate.env
+    set +a
+}
