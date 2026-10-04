@@ -16,3 +16,7 @@ Only the coffee steam animates; the cup and saucer remain stable. Motion pauses 
 
 ## Craft commitments
 Use necessary field labels, real errors and payment states. Preserve payment, Passkey, product idempotency, configuration and legal behavior. Confirm only verified callbacks or administrator-confirmed donations. Verify desktop and mobile layouts and remove any stale CSS or animation code.
+
+## Local extensions
+
+The implemented stablecoin checkout and payment settings are recorded in the [surface brief](.impeccable/surfaces/web-index-html.md) and its [extension sidecar](.impeccable/design.json). They extend the pinned direction above; the sidecar is not a replacement global token specification.

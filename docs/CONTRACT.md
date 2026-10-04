@@ -17,6 +17,7 @@
 | `GET /api/private/stats?currency=USD` | 同类聚合数据，要求 `Authorization: Bearer STATS_TOKEN` |
 | `GET /badge.svg?currency=USD&lang=en&period=30d` | 可公开嵌入的 SVG 捐款总额与笔数，不包含捐赠者资料 |
 | `GET /healthz` | 应用与数据库健康检查 |
+| `GET /api/source` | 源码 URL、真实 GitHub Star 数或 null、抓取时间与缓存状态 |
 | `POST /api/webhooks/{provider}?method_id=METHOD_ID` | 支付平台验签回调，provider 为 waffo、stripe 或 paypal |
 | `GET /api/paypal/return?token=ORDER_ID&donation=ID&status_token=STATUS_TOKEN` | PayPal 返回后在服务器完成 capture，再跳转到状态页 |
 
@@ -35,9 +36,9 @@ curl http://localhost:8080/api/donations \
   --data '{"amount_minor":1500,"currency":"USD","method_id":"custom-main","name":"","email":"","message":"","public":false,"accepted_terms":true}'
 ```
 
-返回 `{id,status,checkout_url,qr_url,instructions,status_token,expires_at,can_cancel}`。未到账为 `pending`，到账为 `confirmed`，全额退款为 `refunded`，主动取消为 `cancelled`，线上等待超时为 `expired`。`accepted_terms:true` 表示捐赠人已阅读协议和隐私说明，前端在操作附近提供可打开的文本。`status_token` 是访问凭据，不应公开分享状态链接。自定义方式只有管理员核实后才确认；在线方式只有验签回调或服务端 PayPal capture 才确认，网页返回参数不构成付款证明。
+返回 `{id,status,checkout_url,qr_url,instructions,status_token,expires_at,can_cancel}`。未到账为 `pending`，到账为 `confirmed`，全额退款为 `refunded`，主动取消为 `cancelled`，线上等待超时为 `expired`。`accepted_terms:true` 表示捐赠人已阅读协议和隐私说明，前端在操作附近提供可打开的文本。`status_token` 是访问凭据，不应公开分享状态链接。自定义方式只有管理员核实后才确认；在线方式只有验签回调、服务端 PayPal capture 或服务器核验链上到账才确认，网页返回参数不构成付款证明。
 
-线上待付款记录默认 45 分钟后过期，后台定时处理，读取状态时也检查期限；重启不会延长期限。自定义二维码和线下记录不自动过期。取消需原状态令牌；已登录捐赠者还需自己的 `X-CSRF-Token`，已关联账号的记录须匹配该账号。取消重复请求安全，已到账或退款返回 409，不执行退款。取消或过期后不再返回继续付款的入口，同一幂等请求不会复活该订单。支付渠道已提交的付款可能晚到，通过真实验签的成功仍会入账、统计并只通知一次。
+托管支付待付款记录默认 45 分钟后过期，后台定时处理，读取状态时也检查期限；重启不会延长期限。自定义二维码和线下记录不自动过期。取消需原状态令牌；已登录捐赠者还需自己的 `X-CSRF-Token`，已关联账号的记录须匹配该账号。取消重复请求安全，已到账或退款返回 409，不执行退款。托管支付取消或过期后不再返回继续付款的入口，同一幂等请求不会复活该订单。支付渠道已提交的付款可能晚到，通过真实验签的成功仍会入账、统计并只通知一次。
 
 支付返回页只在重新读取服务器的 `confirmed` 状态后显示感谢页及金额；刷新仍重新核实。前端把状态令牌保存在当前标签页的 `sessionStorage` 中，并从可分享的网址移除，不缓存付款成功状态。
 
@@ -46,6 +47,23 @@ curl http://localhost:8080/api/donations \
 统计返回 `{count,total_minor,currency,by_currency:[{currency,count,total_minor}],methods:[{method_id,method_name,currency,count,total_minor}],daily:[{date,currency,count,total_minor}]}`，同一次响应来自一致的数据库快照。`daily` 为最近 90 天、UTC 日期。线上 `paid_at` 是本站处理支付确认的时间；手动记录可填写实际到账时间。通知同时提供事件 `created_at`。
 
 `/badge.svg` 只汇总选定币种的 `confirmed` 记录，无需登录或统计令牌。`period=all|7d|30d|year`，7/30 天按 UTC 当前时刻滚动，`year` 从 UTC 当年 1 月 1 日起算，未来到账时间不计入。`lang=zh-CN|zh-TW|en`，`layout=receipt|compact`，`theme=dark|light|transparent`，`width=240..1200`；默认 `all`、`en`、`receipt`、`dark`、宽度 480（紧凑版 440）。`currency` 默认站点币种。`title` 最多 40 字，`amount_label`、`count_label` 最多 24 字，均为单行纯文本；`animation=none|steam`，默认无动画。非法参数返回 400。SVG 使用 `Cache-Control: public, max-age=300` 和内容 ETag，支持 HEAD 与条件请求；外部图片代理可能有额外缓存。
+
+## 链上收款
+
+`/api/site` 的 `crypto_options` 只公开已启用的 `{network,name,family,asset,label}`，不包含节点凭据。创建 `crypto` 订单要求 USD，以及 `crypto_network`、`crypto_asset`。返回额外的 `crypto` 收据，冻结该订单的地址、合约、精度、容差与确认策略；其 `state` 与捐赠的总体 `status` 分开。应付与到账的原子单位为十进制字符串，避免浮点精度损失。已确认统计记录实际到账折算成 USD 分；原应付额与完整链上精度保留在收据。
+
+| 请求 | 用途 |
+| --- | --- |
+| `POST /api/donations/{id}/transactions` | JSON `{status_token,network,tx_id}`；核验交易并返回收据 |
+| `POST /api/donations/{id}/recheck` | JSON `{status_token}`；重新核验已提交的等待确认交易 |
+| `GET /api/donations/{id}/events?token=STATUS_TOKEN` | SSE `receipt` 事件；重连先发送当前权威收据 |
+| `GET /api/donations/{id}/qr?token=STATUS_TOKEN` | 本地生成付款请求 PNG；`address=1` 生成纯地址二维码 |
+| `POST /api/donations/{id}/wallet` | JSON `{status_token,account}`；提供 Solana 最近 blockhash，不代签或广播 |
+| `POST /api/crypto/events` | 独立签名的链事件提示；只能唤醒核验，不能直接认定到账 |
+| `POST /api/admin/crypto/check` | 管理员 JSON `{network}`；检查主网身份、代币合约与精度 |
+| `GET /api/admin/crypto/transactions/{id}` | 管理员查看链上收据与核验结果 |
+
+写请求要求本站 Origin 和原收据令牌；管理接口另需管理员会话与 CSRF。一笔实际链上的交易只能认领一次，补款累加最终确认的净到账，未达到最低金额不计成功。链上转账没有本地取消或自动退款。默认发起期限 30 分钟，之后最多再核验 24 小时；晚到账策略、容差和网络可配置。节点中断显示等待核验原因，不虚报失败或成功。签名、事件重试、钱包兼容性与完整配置见 [CRYPTO.md](CRYPTO.md)。
 
 ## 项目与公开致谢
 

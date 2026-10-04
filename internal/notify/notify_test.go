@@ -160,6 +160,17 @@ func TestWebhookSignatureExactBodyAndStableDeliveryIDAcrossRetry(t *testing.T) {
 		if !hmac.Equal([]byte(r.Header.Get("X-Donate-Signature")), []byte("sha256="+hex.EncodeToString(mac.Sum(nil)))) {
 			t.Error("signature did not authenticate the exact received bytes")
 		}
+		timestamp := r.Header.Get("X-Donate-Timestamp")
+		stamp, err := strconv.ParseInt(timestamp, 10, 64)
+		if err != nil || stamp < time.Now().Unix()-5 || stamp > time.Now().Unix()+5 {
+			t.Error("missing fresh delivery timestamp")
+		}
+		v2 := hmac.New(sha256.New, []byte(secret))
+		v2.Write([]byte(timestamp + "."))
+		v2.Write(body)
+		if !hmac.Equal([]byte(r.Header.Get("X-Donate-Signature-V2")), []byte("sha256="+hex.EncodeToString(v2.Sum(nil)))) {
+			t.Error("V2 did not sign the timestamp and exact body")
+		}
 		if r.Header.Get("X-Donate-Event") != "donation.completed" || r.Header.Get("Content-Type") != "application/json" {
 			t.Error("webhook event headers were missing")
 		}

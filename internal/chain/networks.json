@@ -1,0 +1,319 @@
+[
+  {
+    "id": "plasma",
+    "name": "Plasma",
+    "family": "evm",
+    "enabled": false,
+    "recipient": "",
+    "chain_id": 9745,
+    "native_symbol": "XPL",
+    "rpc_url": "https://rpc.plasma.to",
+    "ws_url": "",
+    "api_key": "",
+    "explorer": "https://plasmascan.to/tx/",
+    "confirmations": 2,
+    "finality": "finalized",
+    "tokens": [
+      {
+        "asset": "USDT",
+        "label": "USDT0",
+        "contract": "0xB8CE59FC3717ada4C02eaDF9682A9e934F625ebb",
+        "decimals": 6,
+        "enabled": true
+      }
+    ],
+    "wallet_rpc_url": "https://rpc.plasma.to"
+  },
+  {
+    "id": "bsc",
+    "name": "BNB Smart Chain",
+    "family": "evm",
+    "enabled": false,
+    "recipient": "",
+    "chain_id": 56,
+    "native_symbol": "BNB",
+    "rpc_url": "https://bsc-rpc.publicnode.com",
+    "ws_url": "wss://bsc-rpc.publicnode.com",
+    "api_key": "",
+    "explorer": "https://bscscan.com/tx/",
+    "confirmations": 15,
+    "finality": "finalized",
+    "tokens": [
+      {
+        "asset": "USDT",
+        "label": "USDT (Binance-Peg)",
+        "contract": "0x55d398326f99059fF775485246999027B3197955",
+        "decimals": 18,
+        "enabled": true
+      }
+    ],
+    "wallet_rpc_url": "https://bsc-rpc.publicnode.com"
+  },
+  {
+    "id": "arbitrum",
+    "name": "Arbitrum",
+    "family": "evm",
+    "enabled": false,
+    "recipient": "",
+    "chain_id": 42161,
+    "native_symbol": "ETH",
+    "rpc_url": "https://arbitrum-one-rpc.publicnode.com",
+    "ws_url": "wss://arbitrum-one-rpc.publicnode.com",
+    "api_key": "",
+    "explorer": "https://arbiscan.io/tx/",
+    "confirmations": 12,
+    "finality": "finalized",
+    "tokens": [
+      {
+        "asset": "USDT",
+        "label": "USDT0",
+        "contract": "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
+        "decimals": 6,
+        "enabled": true
+      },
+      {
+        "asset": "USDC",
+        "label": "USDC",
+        "contract": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+        "decimals": 6,
+        "enabled": true
+      }
+    ],
+    "wallet_rpc_url": "https://arbitrum-one-rpc.publicnode.com"
+  },
+  {
+    "id": "solana",
+    "name": "Solana",
+    "family": "solana",
+    "enabled": false,
+    "recipient": "",
+    "chain_id": 0,
+    "rpc_url": "https://solana-rpc.publicnode.com",
+    "ws_url": "wss://solana-rpc.publicnode.com",
+    "api_key": "",
+    "explorer": "https://solscan.io/tx/",
+    "confirmations": 1,
+    "finality": "finalized",
+    "native_symbol": "SOL",
+    "tokens": [
+      {
+        "asset": "USDT",
+        "label": "USDT",
+        "contract": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+        "decimals": 6,
+        "enabled": true
+      },
+      {
+        "asset": "USDC",
+        "label": "USDC",
+        "contract": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "decimals": 6,
+        "enabled": true
+      }
+    ],
+    "genesis_hash": "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d"
+  },
+  {
+    "id": "ethereum",
+    "name": "Ethereum",
+    "family": "evm",
+    "enabled": false,
+    "recipient": "",
+    "chain_id": 1,
+    "native_symbol": "ETH",
+    "rpc_url": "https://ethereum-rpc.publicnode.com",
+    "ws_url": "wss://ethereum-rpc.publicnode.com",
+    "api_key": "",
+    "explorer": "https://etherscan.io/tx/",
+    "confirmations": 12,
+    "finality": "finalized",
+    "tokens": [
+      {
+        "asset": "USDT",
+        "label": "USDT",
+        "contract": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+        "decimals": 6,
+        "enabled": true
+      },
+      {
+        "asset": "USDC",
+        "label": "USDC",
+        "contract": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+        "decimals": 6,
+        "enabled": true
+      }
+    ],
+    "wallet_rpc_url": "https://ethereum-rpc.publicnode.com"
+  },
+  {
+    "id": "tron",
+    "name": "Tron",
+    "family": "tron",
+    "enabled": false,
+    "recipient": "",
+    "chain_id": 0,
+    "rpc_url": "https://api.trongrid.io",
+    "ws_url": "",
+    "api_key": "",
+    "explorer": "https://tronscan.org/#/transaction/",
+    "confirmations": 1,
+    "finality": "solidified",
+    "native_symbol": "TRX",
+    "tokens": [
+      {
+        "asset": "USDT",
+        "label": "USDT",
+        "contract": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+        "decimals": 6,
+        "enabled": true
+      }
+    ],
+    "genesis_hash": "00000000000000001ebf88508a03865c71d452e25f4d51194196a1d22b6653dc"
+  },
+  {
+    "id": "base",
+    "name": "Base",
+    "family": "evm",
+    "enabled": false,
+    "recipient": "",
+    "chain_id": 8453,
+    "native_symbol": "ETH",
+    "rpc_url": "https://base-rpc.publicnode.com",
+    "ws_url": "wss://base-rpc.publicnode.com",
+    "api_key": "",
+    "explorer": "https://basescan.org/tx/",
+    "confirmations": 12,
+    "finality": "finalized",
+    "tokens": [
+      {
+        "asset": "USDC",
+        "label": "USDC",
+        "contract": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "decimals": 6,
+        "enabled": true
+      }
+    ],
+    "wallet_rpc_url": "https://base-rpc.publicnode.com"
+  },
+  {
+    "id": "polygon",
+    "name": "Polygon",
+    "family": "evm",
+    "enabled": false,
+    "recipient": "",
+    "chain_id": 137,
+    "native_symbol": "POL",
+    "rpc_url": "https://polygon-bor-rpc.publicnode.com",
+    "ws_url": "wss://polygon-bor-rpc.publicnode.com",
+    "api_key": "",
+    "explorer": "https://polygonscan.com/tx/",
+    "confirmations": 12,
+    "finality": "finalized",
+    "tokens": [
+      {
+        "asset": "USDT",
+        "label": "USDT0",
+        "contract": "0xc2132D05D31c914a87C6611C10748AEb04B58e8F",
+        "decimals": 6,
+        "enabled": true
+      },
+      {
+        "asset": "USDC",
+        "label": "USDC",
+        "contract": "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
+        "decimals": 6,
+        "enabled": true
+      }
+    ],
+    "wallet_rpc_url": "https://polygon-bor-rpc.publicnode.com"
+  },
+  {
+    "id": "optimism",
+    "name": "Optimism",
+    "family": "evm",
+    "enabled": false,
+    "recipient": "",
+    "chain_id": 10,
+    "native_symbol": "ETH",
+    "rpc_url": "https://optimism-rpc.publicnode.com",
+    "ws_url": "wss://optimism-rpc.publicnode.com",
+    "api_key": "",
+    "explorer": "https://optimistic.etherscan.io/tx/",
+    "confirmations": 12,
+    "finality": "finalized",
+    "tokens": [
+      {
+        "asset": "USDT",
+        "label": "USDT0",
+        "contract": "0x01bFF41798a0BcF287b996046Ca68b395DbC1071",
+        "decimals": 6,
+        "enabled": true
+      },
+      {
+        "asset": "USDC",
+        "label": "USDC",
+        "contract": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
+        "decimals": 6,
+        "enabled": true
+      }
+    ],
+    "wallet_rpc_url": "https://optimism-rpc.publicnode.com"
+  },
+  {
+    "id": "hyperevm",
+    "name": "HyperEVM",
+    "family": "evm",
+    "enabled": false,
+    "recipient": "",
+    "chain_id": 999,
+    "native_symbol": "HYPE",
+    "rpc_url": "https://rpc.hyperliquid.xyz/evm",
+    "ws_url": "",
+    "api_key": "",
+    "explorer": "https://hyperevmscan.io/tx/",
+    "confirmations": 2,
+    "finality": "finalized",
+    "tokens": [
+      {
+        "asset": "USDT",
+        "label": "USDT0",
+        "contract": "0xB8CE59FC3717ada4C02eaDF9682A9e934F625ebb",
+        "decimals": 6,
+        "enabled": true
+      },
+      {
+        "asset": "USDC",
+        "label": "USDC",
+        "contract": "0xb88339CB7199b77E23DB6E890353E22632Ba630f",
+        "decimals": 6,
+        "enabled": true
+      }
+    ],
+    "wallet_rpc_url": "https://rpc.hyperliquid.xyz/evm"
+  },
+  {
+    "id": "robinhood",
+    "name": "Robinhood Chain",
+    "family": "evm",
+    "enabled": false,
+    "recipient": "",
+    "chain_id": 4663,
+    "native_symbol": "ETH",
+    "rpc_url": "https://rpc.mainnet.chain.robinhood.com",
+    "ws_url": "",
+    "api_key": "",
+    "explorer": "https://robinhoodchain.blockscout.com/tx/",
+    "confirmations": 12,
+    "finality": "finalized",
+    "tokens": [
+      {
+        "asset": "USDG",
+        "label": "USDG",
+        "contract": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "decimals": 6,
+        "enabled": true
+      }
+    ],
+    "wallet_rpc_url": "https://rpc.mainnet.chain.robinhood.com"
+  }
+]

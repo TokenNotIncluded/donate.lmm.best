@@ -1,3 +1,4 @@
+import {createCryptoUI} from './crypto.js';
 const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => [...scope.querySelectorAll(selector)];
 const svgNamespace = 'http://www.w3.org/2000/svg';
@@ -88,12 +89,16 @@ const t = key => ui[locale][key] ?? ui.en[key] ?? key;
 const exponent = value => value === 'JPY' ? 0 : 2;
 const storeValue = (key, value) => { try { localStorage.setItem(key, value); } catch {} };
 const readStored = key => { try { return localStorage.getItem(key); } catch { return null; } };
+const chainUI=createCryptoUI({request,getCheckout:()=>activeCheckout,getLocale:()=>locale,applyStatus:status=>{
+  if(!activeCheckout || status.id!==activeCheckout.id)return;
+  verifiedCheckout=status;Object.assign(activeCheckout,status,{pollError:false});renderCheckout();
+}});
 
 async function request(path, options = {}) {
   const response = await fetch(path, { credentials:'same-origin', ...options, headers:{Accept:'application/json', ...(options.body ? {'Content-Type':'application/json'} : {}), ...options.headers} });
   let result;
   try { result = await response.json(); } catch { throw new Error(t('requestFailed')); }
-  if (!response.ok) {const error=new Error(result.error || t('requestFailed'));error.status=response.status;throw error;}
+  if (!response.ok) {const error=new Error(result.error || t('requestFailed'));error.status=response.status;error.reason=result.reason;throw error;}
   return result;
 }
 function money(amountMinor, unit) {
@@ -170,6 +175,7 @@ async function restoreReceiptProject(status,id,sequence) {
   activeProject=project || null;projectError=error;renderProjects();setCurrency(activeProject?.currency || currency);
 }
 function applyLanguage() {
+  chainUI.translate();
   document.documentElement.lang = locale;
   $$('[data-i18n]').forEach(element => setMultiline(element,t(element.dataset.i18n)));
   $$('[data-placeholder]').forEach(element => element.placeholder = t(element.dataset.placeholder));
@@ -249,16 +255,20 @@ function renderMethods() {
   methods.forEach((method,index) => {
     const label=document.createElement('label');label.className='method';
     const radio=document.createElement('input');radio.type='radio';radio.name='method_id';radio.value=method.id;radio.required=true;
-    radio.addEventListener('change',renderRandomAmount);
+    radio.addEventListener('change',()=>{if(method.type==='crypto' && currency!=='USD'){setCurrency('USD');return;}renderRandomAmount();chainUI.renderChoice(site,method.type==='crypto');});
     radio.checked=old ? method.id===old : index===0;
-    const unavailable=method.type==='waffo' && currency==='TWD';radio.disabled=unavailable;
+    const cryptoUnavailable=method.type==='crypto' && (!site.crypto_options?.length || (activeProject && activeProject.currency!=='USD'));
+    const unavailable=(method.type==='waffo' && currency==='TWD') || cryptoUnavailable;radio.disabled=unavailable;
     const body=document.createElement('span');body.className='method-body';const name=document.createElement('span');name.className='method-title';name.textContent=method.name;body.append(name);
-    if(method.description || unavailable) {const description=document.createElement('span');description.className='method-description';description.textContent=unavailable ? t('unsupportedWaffo') : method.description;body.append(description);}
+    if(method.description || unavailable) {const description=document.createElement('span');description.className='method-description';description.textContent=cryptoUnavailable ? chainUI.t('price') : unavailable ? t('unsupportedWaffo') : method.description;body.append(description);}
     if(unavailable) {label.style.opacity='.55';radio.checked=false;}
     const iconName=method.type==='custom' ? method.qr_url ? 'qr' : method.checkout_url ? 'link' : 'wallet' : method.type==='stripe' ? 'card' : 'wallet';
     label.append(radio,createIcon(iconName,'icon method-icon'),body);container.append(label);
   });
   if(!$('input[name=method_id]:checked')) {const first=$('input[name=method_id]:not(:disabled)');if(first)first.checked=true;}
+  const selected=site.methods.find(m=>m.id===$('input[name=method_id]:checked')?.value);
+  if(selected?.type==='crypto' && currency!=='USD'){setCurrency('USD');return;}
+  chainUI.renderChoice(site,selected?.type==='crypto');
   renderRandomAmount();
   $('#donate-button').disabled=submissionBusy || donorBusy || projectBlocked() || !$('input[name=method_id]:not(:disabled)');
 }
@@ -305,11 +315,12 @@ function confirmedReceipt() {
   return receipt?.id===activeCheckout?.id && ['paid','confirmed','completed','succeeded'].includes(receipt?.status) && Number.isSafeInteger(receipt?.amount_minor) && receipt.amount_minor>0 && ['USD','EUR','GBP','CNY','TWD','HKD','JPY'].includes(receipt?.currency) ? receipt : null;
 }
 function showCheckout(checkout) {
+  chainUI.stop();
   clearTimeout(pollTimer);clearTimeout(expiryTimer);
   activeCheckout=checkout;verifiedCheckout=null;checkoutSequence++;cancellationBusy=false;pollCount=0;$('#donation-form').hidden=true;$('#donation-thanks').hidden=true;$('#checkout-status').hidden=false;$('#checkout-status').focus();
   rememberReceipt(checkout.id,checkout.status_token);
   const url=new URL(location.href);url.searchParams.set('donation',checkout.id);url.searchParams.delete('status_token');history.replaceState(null,'',url);
-  renderCheckout();schedulePoll(1200);
+  renderCheckout();if(!checkout.crypto)schedulePoll(1200);
 }
 function renderCheckout() {
   if(!activeCheckout)return;
@@ -334,6 +345,7 @@ function renderCheckout() {
   const copy=needsVerification ? '' : t(key==='pending' && activeCheckout.custom ? 'customPendingCopy' : `${key}Copy`);
   $('#checkout-copy').textContent=copy;$('#checkout-copy').hidden=!copy;
   $('#checkout-amount').textContent=activeCheckout.amount_minor ? money(activeCheckout.amount_minor,activeCheckout.currency) : '';
+  $('#checkout-amount').hidden=false;
   const qr=safeCheckoutURL(activeCheckout.qr_url);const qrContainer=$('#checkout-qr-container');qrContainer.hidden=!qr || finalState || needsVerification;
   if(qr){let image=$('#checkout-qr');if(!image){image=document.createElement('img');image.id='checkout-qr';image.alt=t('qrAlt');image.src=qr;qrContainer.append(image);}else{image.src=qr;image.alt=t('qrAlt');}}
   const link=safeCheckoutURL(activeCheckout.checkout_url);$('#checkout-link').hidden=!link || finalState || needsVerification;if(link)$('#checkout-link').href=link;
@@ -346,11 +358,12 @@ function renderCheckout() {
   if(!activeCheckout.pollError) $('#status-detail').textContent=needsVerification ? t('checking') : key==='pending' ? t(activeCheckout.custom?'customWaiting':'statusWaiting') : key==='paid' ? `${t('statusConfirmed')}${activeCheckout.paid_at ? ` · ${new Intl.DateTimeFormat(locale,{dateStyle:'medium',timeStyle:'short'}).format(new Date(activeCheckout.paid_at))}`:''}` : '';
   if(finalState)clearTimeout(pollTimer);
   scheduleExpiryCheck();
+  chainUI.render(activeCheckout);
 }
-function schedulePoll(delay=6000) {clearTimeout(pollTimer);if(!activeCheckout || document.hidden)return;pollTimer=setTimeout(()=>pollStatus(false),delay);}
+function schedulePoll(delay=6000) {clearTimeout(pollTimer);if(!activeCheckout || activeCheckout.crypto || document.hidden)return;pollTimer=setTimeout(()=>pollStatus(false),delay);}
 function scheduleExpiryCheck() {
   clearTimeout(expiryTimer);
-  if(!activeCheckout || cancellationBusy || !['pending','created','processing',''].includes(activeCheckout.status || ''))return;
+  if(!activeCheckout || activeCheckout.crypto || cancellationBusy || !['pending','created','processing',''].includes(activeCheckout.status || ''))return;
   const delay=Date.parse(activeCheckout.expires_at)-Date.now();
   if(!Number.isFinite(delay) || delay<=0)return;
   const id=activeCheckout.id;
@@ -358,6 +371,7 @@ function scheduleExpiryCheck() {
 }
 async function pollStatus(manual=false) {
   if(!activeCheckout || cancellationBusy)return;
+  if(activeCheckout.crypto){if(manual){try{await chainUI.recheck();}catch(error){$('#status-detail').textContent=error.message || t('statusUnavailable');}}return;}
   if(!manual && pollCount>=150){$('#status-detail').textContent=t('autoCheckPaused');return;}
   clearTimeout(pollTimer);clearTimeout(expiryTimer);
   const button=$('#status-refresh');button.disabled=true;$('#status-refresh-label').textContent=t('checking');const id=activeCheckout.id;const sequence=++checkoutSequence;
@@ -416,7 +430,7 @@ $('#donation-form').addEventListener('submit',async event=>{
     const identityBeforeSubmit=donorIdentity();const identityWasKnown=donorSessionKnown;
     try {await refreshDonorSession();}catch{}
     if(identityWasKnown && identityBeforeSubmit!==donorIdentity())throw new Error(t(donorSession.authenticated?'sessionChanged':'sessionExpired'));
-    const body=JSON.stringify({amount_minor:amountMinor,currency,method_id:selected.value,project_id:activeProject?.id || '',name:site.collect_name ? $('#donor-name').value.trim() : '',email:site.collect_email ? $('#donor-email').value.trim() : '',message:site.collect_message ? $('#donor-message').value.trim() : '',public:$('#donor-public').checked,public_thanks:$('#donor-public-thanks').checked,accepted_terms:true});
+    const body=JSON.stringify({amount_minor:amountMinor,currency,method_id:selected.value,...(method?.type==='crypto'?{crypto_network:$('#crypto-network').value,crypto_asset:$('#crypto-asset').value}:{}),project_id:activeProject?.id || '',name:site.collect_name ? $('#donor-name').value.trim() : '',email:site.collect_email ? $('#donor-email').value.trim() : '',message:site.collect_message ? $('#donor-message').value.trim() : '',public:$('#donor-public').checked,public_thanks:$('#donor-public-thanks').checked,accepted_terms:true});
     const fingerprint=`${donorIdentity()}\n${body}`;
     if(fingerprint!==donationFingerprint || !donationIdempotency){donationFingerprint=fingerprint;donationIdempotency=crypto.randomUUID ? crypto.randomUUID() : Array.from(crypto.getRandomValues(new Uint8Array(24)),byte=>byte.toString(16).padStart(2,'0')).join('');}
     const donation=await request('/api/donations',{method:'POST',body,headers:{'Idempotency-Key':donationIdempotency,...(donorSession.authenticated && donorSession.csrf_token ? {'X-CSRF-Token':donorSession.csrf_token} : {})}});
@@ -429,14 +443,15 @@ $('#donation-form').addEventListener('submit',async event=>{
 });
 $('#amount').addEventListener('input',()=>{$('#amount-error').hidden=true;markPreset();});
 $('#random-amount').addEventListener('click',randomizeAmount);
-$('#currency').addEventListener('change',()=>setCurrency($('#currency').value));
+$('#currency').addEventListener('change',()=>{const selected=$('input[name=method_id]:checked');if($('#currency').value!=='USD' && site.methods.find(m=>m.id===selected?.value)?.type==='crypto'){selected.checked=false;const next=site.methods.find(m=>m.type!=='crypto');if(next)$(`input[name=method_id][value="${CSS.escape(next.id)}"]`).checked=true;}setCurrency($('#currency').value);});
+$('#crypto-asset').addEventListener('change',()=>chainUI.renderNetworks(site));
 $('#language').addEventListener('change',()=>{locale=$('#language').value;storeValue('token-language',locale);applyLanguage();setCurrency(site?.language_currencies?.[locale] || {'zh-CN':'CNY','zh-TW':'TWD',en:'USD'}[locale]);renderRecent();});
 $$('[data-policy]').forEach(button=>button.addEventListener('click',()=>showPolicy(button.dataset.policy)));
 $('#close-policy').addEventListener('click',()=>$('#policy-dialog').close());
 $('#policy-dialog').addEventListener('click',event=>{if(event.target===$('#policy-dialog')){const box=event.target.getBoundingClientRect();if(event.clientX<box.left || event.clientX>box.right || event.clientY<box.top || event.clientY>box.bottom)event.target.close();}});
 $('#status-refresh').addEventListener('click',()=>{pollCount=0;pollStatus(true);});
 $('#cancel-payment').addEventListener('click',cancelPayment);
-function returnToDonation(){clearTimeout(pollTimer);clearTimeout(expiryTimer);checkoutSequence++;activeCheckout=null;verifiedCheckout=null;cancellationBusy=false;donationFingerprint='';donationIdempotency='';$('#donor-public-thanks').checked=false;$('#checkout-status').hidden=true;$('#donation-thanks').hidden=true;$('#donation-form').hidden=false;$('#custom-copy').hidden=$('#site-tagline').hidden && $('#site-description').hidden;const url=new URL(location.href);url.searchParams.delete('donation');url.searchParams.delete('status_token');url.searchParams.delete('cancelled');history.replaceState(null,'',url);renderRecent();renderAnnouncement();renderProjects();renderDonorAccount();$('#amount').focus();}
+function returnToDonation(){chainUI.stop();clearTimeout(pollTimer);clearTimeout(expiryTimer);checkoutSequence++;activeCheckout=null;verifiedCheckout=null;cancellationBusy=false;donationFingerprint='';donationIdempotency='';$('#donor-public-thanks').checked=false;$('#checkout-status').hidden=true;$('#donation-thanks').hidden=true;$('#donation-form').hidden=false;$('#custom-copy').hidden=$('#site-tagline').hidden && $('#site-description').hidden;const url=new URL(location.href);url.searchParams.delete('donation');url.searchParams.delete('status_token');url.searchParams.delete('cancelled');history.replaceState(null,'',url);renderRecent();renderAnnouncement();renderProjects();renderDonorAccount();$('#amount').focus();}
 $('#new-donation').addEventListener('click',returnToDonation);
 $('#thanks-back').addEventListener('click',returnToDonation);
 let logoClicks=[];
@@ -648,7 +663,7 @@ async function start(){
     $('#public-consent-label').hidden=!site.collect_name && !site.collect_message;
     $('.donor-details').hidden=!site.collect_name && !site.collect_email && !site.collect_message;
     if(site.contact_email){$('#contact-link').href=`mailto:${site.contact_email}`;$('#contact-link').hidden=false;}
-    applyLanguage();setCurrency(site.language_currencies?.[locale] || {'zh-CN':'CNY','zh-TW':'TWD',en:'USD'}[locale],false);renderRecent();
+    chainUI.source();applyLanguage();setCurrency(site.language_currencies?.[locale] || {'zh-CN':'CNY','zh-TW':'TWD',en:'USD'}[locale],false);renderRecent();
     if(returnedReceipt){showCheckout(returnedReceipt);await pollStatus(true);}
   }catch(error){
     applyLanguage();$('#payment-methods').replaceChildren();const note=document.createElement('p');note.className='empty-note';note.textContent=t('loadFailed');$('#payment-methods').append(note);$('#donate-button').disabled=true;

@@ -48,6 +48,8 @@ archives:
         info: *archive_file_info
       - src: docs/PAYMENTS.md
         info: *archive_file_info
+      - src: docs/CRYPTO.md
+        info: *archive_file_info
       - src: docs/WAFFO-CATALOG.md
         info: *archive_file_info
       - src: packaging/donate.env
@@ -111,6 +113,8 @@ nfpms:
         dst: /usr/share/doc/donate/DEPLOYMENT.md
       - src: docs/PAYMENTS.md
         dst: /usr/share/doc/donate/PAYMENTS.md
+      - src: docs/CRYPTO.md
+        dst: /usr/share/doc/donate/CRYPTO.md
       - src: docs/WAFFO-CATALOG.md
         dst: /usr/share/doc/donate/WAFFO-CATALOG.md
       - src: LICENSE

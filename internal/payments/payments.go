@@ -140,7 +140,7 @@ func ValidateMethod(m Method) error {
 		for _, key := range []string{"client_id", "client_secret", "webhook_id", "environment"} {
 			allowed[key] = true
 		}
-	case "custom":
+	case "custom", "crypto":
 	default:
 		return errors.New("unsupported payment method")
 	}
@@ -208,6 +208,9 @@ func ValidateMethod(m Method) error {
 // application should call it before persisting a new pending donation, so a
 // rejected provider currency/amount cannot leave an unusable checkout row.
 func ValidateCheckout(m Method, in CheckoutRequest) error {
+	if m.Type == "crypto" && in.Currency != "USD" {
+		return errors.New("链上稳定币收款按 USD 计价")
+	}
 	if !m.Enabled {
 		return errors.New("payment method is disabled")
 	}

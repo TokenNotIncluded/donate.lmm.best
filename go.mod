@@ -3,7 +3,10 @@ module github.com/TokenNotIncluded/donate.lmm.best
 go 1.27.1
 
 require (
+	github.com/coder/websocket v1.8.15
 	github.com/go-webauthn/webauthn v0.18.2
+	github.com/mr-tron/base58 v1.3.0
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/waffo-com/waffo-pancake-sdk-go v0.16.0
 	golang.org/x/crypto v0.57.0
 	golang.org/x/image v0.46.0

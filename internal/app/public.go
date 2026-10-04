@@ -109,6 +109,7 @@ func (a *App) site(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	rawSite["methods"] = methods
+	rawSite["crypto_options"] = s.Crypto.Options()
 	st, e := a.stats(s.Site.Currency)
 	if e != nil {
 		internalError(w)

@@ -2,9 +2,17 @@
   "name": "token-donate-browser-checks",
   "private": true,
   "scripts": {
-    "test:browser": "node tests/browser.mjs"
+    "test:browser": "node tests/browser.mjs",
+    "build:wallet": "esbuild scripts/wallet-solana.js --bundle --minify --format=esm --platform=browser --target=es2022 --outfile=web/wallet-solana.js --legal-comments=linked"
   },
   "devDependencies": {
+    "esbuild": "^0.28.2",
     "playwright": "1.63.0"
-  }
+  },
+  "dependencies": {
+    "@solana-program/token": "^0.17.0",
+    "@solana/kit": "^8.4.0",
+    "@wallet-standard/app": "^1.1.1"
+  },
+  "type": "module"
 }

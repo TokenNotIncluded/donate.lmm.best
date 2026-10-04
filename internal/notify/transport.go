@@ -242,6 +242,15 @@ func sendWebhook(ctx context.Context, deliveryID string, body []byte, cfg Webhoo
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("User-Agent", "Donate/1")
 	request.Header.Set("X-Donate-Signature", "sha256="+hex.EncodeToString(mac.Sum(nil)))
+	// Preserve the existing body-only signature for existing receivers. V2 also
+	// binds a fresh delivery timestamp, so receivers can reject captured requests
+	// while accepting delayed retries of the same durable event.
+	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+	v2 := hmac.New(sha256.New, []byte(cfg.Secret))
+	v2.Write([]byte(timestamp + "."))
+	v2.Write(body)
+	request.Header.Set("X-Donate-Timestamp", timestamp)
+	request.Header.Set("X-Donate-Signature-V2", "sha256="+hex.EncodeToString(v2.Sum(nil)))
 	request.Header.Set("X-Donate-Event", event.Type)
 	request.Header.Set("X-Donate-Delivery", deliveryID)
 	transport := &http.Transport{

@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-04T11:18:02Z",
+  "title": "Donate: stablecoin extension",
+  "extensions": {
+    "motion": [
+      {
+        "name": "wallet-action-state",
+        "value": "background .15s, border-color .15s",
+        "purpose": "Existing white action hover/active transition; reduced-motion rules disable it."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "public-mobile",
+        "value": "480px"
+      },
+      {
+        "name": "public-narrow",
+        "value": "360px"
+      },
+      {
+        "name": "admin-single-column",
+        "value": "620px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Stablecoin and network choice",
+      "kind": "input",
+      "description": "Native choices above submission; extracted from the public extension. Listed options are specimens, not a live availability claim.",
+      "html": "<div class=\"ds-choice\"><label for=\"ds-asset\">Stablecoin</label><select id=\"ds-asset\"><option>USDT</option><option>USDC</option><option>USDG</option></select><label for=\"ds-network\">Network</label><select id=\"ds-network\"><option>Plasma · USDT0</option></select><p>Stablecoins are priced in USD. The amount is in US dollars.</p></div>",
+      "css": ".ds-choice{display:grid;grid-template-columns:90px minmax(0,1fr);gap:12px;align-items:center;padding:18px 0;border-bottom:1px solid var(--line,#3f3f3f);background:var(--bg,#0b0b0b);color:var(--ink,#f5f5f5);font:14px/1.6 var(--sans,system-ui,sans-serif)}.ds-choice select{font:inherit;color:inherit;min-height:44px;max-width:100%;width:100%;padding:10px;border:1px solid #595959;border-radius:0;background:var(--bg,#0b0b0b)}.ds-choice option{color:#f5f5f5;background:#171717}.ds-choice select:focus-visible{outline:2px solid #fff;outline-offset:5px}.ds-choice p{grid-column:1/-1;margin:0;font-size:12px;color:var(--muted,#a3a3a3);line-height:1.8;overflow-wrap:anywhere}"
+    },
+    {
+      "name": "Wallet action",
+      "kind": "button",
+      "description": "White primary action for a wallet-prefilled transfer; the runtime fills the remaining amount.",
+      "html": "<button type=\"button\" class=\"ds-wallet\">Pay with wallet</button>",
+      "css": ".ds-wallet{display:flex;align-items:center;justify-content:space-between;gap:16px;width:100%;min-height:56px;margin-top:25px;padding:15px 18px;border:1px solid #f5f5f5;border-radius:0;background:#f5f5f5;color:#0b0b0b;text-align:left;font:500 14px/1.6 var(--sans,system-ui,sans-serif);cursor:pointer;transition:background .15s,border-color .15s}.ds-wallet:hover{background:#d6d6d6;border-color:#d6d6d6}.ds-wallet:active{background:#bdbdbd;border-color:#bdbdbd}.ds-wallet:focus-visible{outline:2px solid #fff;outline-offset:5px}.ds-wallet:disabled{cursor:not-allowed;opacity:.4}.ds-wallet:disabled:hover{background:#f5f5f5;border-color:#f5f5f5}@media(max-width:480px){.ds-wallet{margin-top:22px}}@media(prefers-reduced-motion:reduce){.ds-wallet{transition:none}}"
+    },
+    {
+      "name": "Exact receipt rows",
+      "kind": "custom",
+      "description": "Expected and confirmed receipt stay separate, with a textual transaction result. Dashes are empty specimen values, not donations.",
+      "html": "<section class=\"ds-receipt\"><dl><div><dt>Expected</dt><dd>—</dd></div><div><dt>Confirmed receipt</dt><dd>—</dd></div></dl><p role=\"status\">Awaiting payment</p></section>",
+      "css": ".ds-receipt{background:var(--bg,#0b0b0b);color:var(--ink,#f5f5f5);font:14px/1.6 var(--sans,system-ui,sans-serif);text-align:left}.ds-receipt dl{margin:18px 0 24px}.ds-receipt dl>div{display:flex;justify-content:space-between;align-items:baseline;gap:16px;padding:9px 0;border-bottom:1px solid #303030}.ds-receipt dt{color:var(--muted,#a3a3a3);font-size:12px}.ds-receipt dd{margin:0;font-family:var(--mono,ui-monospace,SFMono-Regular,Consolas,monospace);font-variant-numeric:tabular-nums;overflow-wrap:anywhere;text-align:right}.ds-receipt p{margin:0;font-weight:500}"
+    },
+    {
+      "name": "Transaction-ID recovery",
+      "kind": "input",
+      "description": "Malformed-ID error specimen. Runtime submission focuses this described field; input clears its invalid state.",
+      "html": "<form class=\"ds-tx\"><label for=\"ds-tx-id\">Transaction ID</label><input id=\"ds-tx-id\" maxlength=\"100\" autocomplete=\"off\" spellcheck=\"false\" aria-invalid=\"true\" aria-describedby=\"ds-tx-error\" placeholder=\"Paste your transaction ID after transferring\" required><p id=\"ds-tx-error\" role=\"alert\">Invalid transaction ID format. Copy the complete transaction ID from your wallet or block explorer, then submit it again.</p><button type=\"submit\">Submit transaction ID</button></form>",
+      "css": ".ds-tx{background:var(--bg,#0b0b0b);color:var(--ink,#f5f5f5);font:14px/1.6 var(--sans,system-ui,sans-serif)}.ds-tx label{display:block;font-size:12px;margin:12px 0 8px}.ds-tx input{min-height:44px;min-width:0;max-width:100%;width:100%;padding:10px;border:1px solid #595959;border-radius:0;background:var(--bg,#0b0b0b);color:inherit;font:12px var(--mono,ui-monospace,SFMono-Regular,Consolas,monospace)}.ds-tx p{margin:0 0 17px;font-size:13px;color:#fff;line-height:1.7;overflow-wrap:anywhere}.ds-tx button{margin-top:12px;width:100%;min-height:48px;border:1px solid var(--line,#3f3f3f);border-radius:0;background:transparent;color:inherit;font:inherit;cursor:pointer}.ds-tx button:hover{background:#202020}.ds-tx button:disabled{cursor:not-allowed;opacity:.4}.ds-tx input:focus-visible,.ds-tx button:focus-visible{outline:2px solid #fff;outline-offset:5px}"
+    },
+    {
+      "name": "Admin network controls",
+      "kind": "custom",
+      "description": "Visible network/token switches, collapsed advanced JSON, and a per-network node/token check. Empty JSON specimen carries no configuration.",
+      "html": "<article class=\"ds-network\"><label class=\"ds-network-enable\"><input type=\"checkbox\"><span>Plasma <small>evm</small></span></label><div class=\"ds-token-group\"><label><input type=\"checkbox\"><span>USDT0</span></label></div><details><summary>Advanced: nodes, contracts and finality</summary><textarea aria-label=\"Plasma JSON\" rows=\"12\" spellcheck=\"false\"></textarea></details><button type=\"button\">Check node and tokens</button><p role=\"status\"></p></article>",
+      "css": ".ds-network{padding:20px 0;border-bottom:1px solid var(--line,#333);background:var(--bg,#0b0b0b);color:var(--ink,#f5f5f5);font:14px/1.5 var(--sans,system-ui,sans-serif)}.ds-network label{display:flex;align-items:center;gap:10px;min-height:44px}.ds-network-enable{font-size:15px}.ds-network small{color:var(--muted,#aaa);font-size:12px;margin-left:6px}.ds-network input{width:18px;min-height:18px;margin:0;accent-color:var(--ink,#f5f5f5)}.ds-token-group{display:flex;flex-wrap:wrap;gap:8px 24px;margin:12px 0 12px 28px}.ds-network details{margin:10px 0}.ds-network summary{cursor:pointer;min-height:44px;padding:10px 0;color:var(--muted,#aaa);font-size:12px;font-weight:500;list-style-position:outside}.ds-network details[open]>summary{margin-bottom:16px}.ds-network textarea{width:100%;padding:10px 12px;border:1px solid var(--field-line,#555);border-radius:0;background:var(--bg,#0b0b0b);color:inherit;font:12px var(--mono,ui-monospace,SFMono-Regular,Consolas,monospace);min-height:230px;resize:vertical}.ds-network textarea:hover{border-color:#888}.ds-network button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:10px 16px;border:1px solid var(--field-line,#555);border-radius:0;background:transparent;color:inherit;font:500 13px/1.4 var(--sans,system-ui,sans-serif);cursor:pointer;transition:background-color .15s,color .15s,border-color .15s}.ds-network button:hover{background:var(--surface,#151515);border-color:#999}.ds-network button:disabled{opacity:.45;cursor:not-allowed}.ds-network input:focus-visible,.ds-network summary:focus-visible,.ds-network textarea:focus-visible,.ds-network button:focus-visible{outline:2px solid var(--ink,#f5f5f5);outline-offset:3px}.ds-network p{margin:8px 0;overflow-wrap:anywhere}@media(prefers-reduced-motion:reduce){.ds-network button{transition:none}}"
+    }
+  ],
+  "narrative": {
+    "overview": "The user pins the title Donate, an animated ASCII coffee logo, a black-and-white palette and minimal layouts. These explicit choices supersede the original token cloud and orbital art direction."
+  }
+}

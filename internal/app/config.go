@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/TokenNotIncluded/donate.lmm.best/internal/chain"
 	"net/mail"
 	"net/url"
 	"strings"
@@ -42,6 +43,7 @@ type Site struct {
 	Translations       map[string]Translation `json:"translations"`
 }
 type Settings struct {
+	Crypto     chain.Config         `json:"crypto"`
 	Site       Site                 `json:"site"`
 	Methods    []payments.Method    `json:"methods"`
 	Webhook    notify.WebhookConfig `json:"webhook"`
@@ -51,6 +53,7 @@ type Settings struct {
 
 func defaults() Settings {
 	return Settings{
+		Crypto: chain.Defaults(),
 		Site: Site{Name: "Donate", Currency: "USD", Presets: []int64{5, 15, 50, 100}, CollectName: true, CollectEmail: true, CollectMessage: true, Languages: []string{"zh-CN", "zh-TW", "en"}, DefaultLanguage: "zh-CN", Currencies: []string{"USD", "CNY", "TWD", "EUR", "GBP", "HKD", "JPY"}, LanguageCurrencies: map[string]string{"zh-CN": "CNY", "zh-TW": "TWD", "en": "USD"}, Terms: "这是对开源项目的自愿支持，不构成购买商品、服务或取得权益的承诺。请确认金额和支付方式后再付款；手续费、汇率与支付规则以支付平台为准。退款或误付款请联系网站维护者，依法应享有的权利不受影响。请勿冒用他人信息或进行违法交易。", Privacy: "我们保存捐赠金额、币种、支付方式、时间，以及你自愿填写的名字、邮箱和留言，用于核对捐赠与通知维护者。银行卡等支付凭据由支付平台处理，本站不保存。只有你选择公开时，名字和留言才会显示在感谢列表；邮箱不会公开。另勾选允许公开致谢后，昵称可用于维护者制作的致谢网页或小游戏；邮箱不公开。可选账号保存账号标识、Passkey 公钥和关联捐款，设备生物识别数据不上传。用户和后台登录使用必要 Cookie，不使用广告追踪。你可联系维护者请求查阅、更正或删除信息；依法需留存的交易记录除外。", Translations: map[string]Translation{
 			"en":    {Terms: "Your donation voluntarily supports an open-source project and does not promise goods, services, or other benefits. Check the amount and payment method before paying. Provider fees, exchange rates, and payment rules apply. Contact the maintainer about refunds or mistaken payments; your statutory rights remain unaffected. Do not misuse another person's information or make unlawful transactions.", Privacy: "We keep the amount, currency, payment method, time, and any name, email, or message you choose to provide to reconcile donations and notify the maintainer. Payment providers handle card details; we do not store them. Your name and message appear publicly only with your consent; email is never public. If you separately consent to public acknowledgements, your nickname may appear in thank-you webpages or small games made by the maintainer; your email is never published. Optional accounts store an identifier, Passkey public keys and linked donations; biometric data stays on your device. User and admin sign-in use essential cookies, with no advertising trackers. Contact the maintainer to access, correct, or delete your information, subject to legally required transaction retention."},
 			"zh-TW": {Terms: "這是對開源專案的自願支持，不構成購買商品、服務或取得權益的承諾。請確認金額與付款方式；手續費、匯率與支付規則以支付平台為準。退款或誤付款請聯絡維護者，依法應享有的權利不受影響。請勿冒用他人資訊或進行違法交易。", Privacy: "我們保存捐贈金額、幣別、付款方式、時間，以及你自願提供的名字、信箱和留言，用於核對與通知維護者。支付平台處理信用卡等付款資料，本站不保存。只有選擇公開時，名字和留言才會顯示；信箱不公開。另勾選允許公開致謝後，暱稱可用於維護者製作的致謝網頁或小遊戲；信箱不公開。選填帳號保存帳號識別碼、Passkey 公開金鑰及關聯捐款，裝置生物識別資料不上傳。使用者與後台登入使用必要 Cookie，不使用廣告追蹤。你可聯絡維護者請求查閱、更正或刪除資訊，依法需保留的交易紀錄除外。"},
@@ -71,6 +74,11 @@ func contains(items []string, s string) bool {
 	return false
 }
 func validateSettings(s Settings) error {
+	if s.Crypto.Networks != nil {
+		if err := s.Crypto.Validate(); err != nil {
+			return err
+		}
+	}
 	if strings.TrimSpace(s.Site.Name) == "" || len(s.Site.Name) > 120 {
 		return errors.New("网站名称不能为空，且不能超过 120 字节")
 	}
@@ -123,6 +131,9 @@ func validateSettings(s Settings) error {
 	}
 	seen = map[string]bool{}
 	for _, m := range s.Methods {
+		if m.Type == "crypto" && m.Enabled && (len(s.Crypto.Options()) == 0 || !contains(s.Site.Currencies, "USD")) {
+			return errors.New("链上收款需要启用网络和 USD 币种")
+		}
 		if !validID(m.ID) || seen[m.ID] || strings.TrimSpace(m.Name) == "" || len(m.Name) > 120 || len(m.Description) > 3000 {
 			return errors.New("支付方式标识、名称或说明无效")
 		}
@@ -177,6 +188,9 @@ func (a *App) settings() (Settings, error) {
 	}
 	var s Settings
 	err = json.Unmarshal([]byte(raw), &s)
+	if s.Crypto.Networks == nil {
+		s.Crypto = chain.Defaults()
+	}
 	return s, err
 }
 func (a *App) saveSettings(s Settings) error {

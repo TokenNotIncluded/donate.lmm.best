@@ -84,3 +84,34 @@ func TestStaticHTMLVersionsResourceContents(t *testing.T) {
 		t.Fatalf("unchanged stylesheet version changed: %s", body)
 	}
 }
+
+func TestImportedModulesRevalidateAcrossUpdates(t *testing.T) {
+	assets := fstest.MapFS{"crypto.js": {Data: []byte("export const payment = 'old';")}}
+	a := &App{assets: assets}
+	request := func(etag string) *httptest.ResponseRecorder {
+		rr := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/crypto.js", nil)
+		if etag != "" {
+			r.Header.Set("If-None-Match", etag)
+		}
+		a.serveAssets(rr, r)
+		return rr
+	}
+	first := request("")
+	expectStatus(t, first, http.StatusOK)
+	etag := first.Header().Get("ETag")
+	if etag == "" || first.Header().Get("Cache-Control") != "no-cache" {
+		t.Fatal("unversioned module must revalidate with a content ETag")
+	}
+	cached := request(etag)
+	expectStatus(t, cached, http.StatusNotModified)
+	if cached.Body.Len() != 0 {
+		t.Fatal("unchanged module should reuse its cached body")
+	}
+	assets["crypto.js"].Data = []byte("export const payment = 'new';")
+	updated := request(etag)
+	expectStatus(t, updated, http.StatusOK)
+	if updated.Header().Get("ETag") == etag || !strings.Contains(updated.Body.String(), "'new'") {
+		t.Fatal("updated module must invalidate the previous payment logic")
+	}
+}

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TokenNotIncluded/donate.lmm.best/internal/chain"
 	"github.com/TokenNotIncluded/donate.lmm.best/internal/notify"
 	"github.com/TokenNotIncluded/donate.lmm.best/internal/payments"
 )
@@ -73,6 +74,8 @@ func methodByID(s Settings, id string) (payments.Method, bool) {
 }
 
 type donationInput struct {
+	CryptoNetwork string      `json:"crypto_network,omitempty"`
+	CryptoAsset   string      `json:"crypto_asset,omitempty"`
 	AmountMinor   int64       `json:"amount_minor"`
 	Currency      string      `json:"currency"`
 	MethodID      string      `json:"method_id"`
@@ -187,6 +190,13 @@ func (a *App) createDonation(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "请选择可用的支付方式")
 		return
 	}
+	var cryptoQuote chain.Quote
+	if m.Type == "crypto" {
+		if in.Currency != "USD" {
+			fail(w, 400, "链上稳定币收款按 USD 计价")
+			return
+		}
+	}
 	raw, _ := json.Marshal(in)
 	requestDigest := digest(string(raw))
 	if donorUserID != "" {
@@ -212,13 +222,20 @@ func (a *App) createDonation(w http.ResponseWriter, r *http.Request) {
 				internalError(w)
 				return
 			}
-			if d.Status != "pending" || d.CheckoutURL != "" || m.Type == "custom" {
+			if d.Status != "pending" || d.CheckoutURL != "" || m.Type == "custom" || m.Type == "crypto" {
 				a.checkoutResponse(w, d, m)
 				return
 			}
 		}
 	}
 	if d.ID == "" {
+		if m.Type == "crypto" {
+			cryptoQuote, e = s.Crypto.Quote(in.CryptoNetwork, in.CryptoAsset, in.AmountMinor)
+			if e != nil {
+				fail(w, 400, e.Error())
+				return
+			}
+		}
 		projectName, projectErr := validateDonationProject(r.Context(), a.DB, in.ProjectID, in.Currency)
 		if projectErr != nil {
 			fail(w, http.StatusBadRequest, projectErr.Error())
@@ -228,6 +245,9 @@ func (a *App) createDonation(w http.ResponseWriter, r *http.Request) {
 		d = Donation{ID: randomToken(), StatusToken: randomToken(), AmountMinor: in.AmountMinor, Currency: in.Currency, MethodID: m.ID, MethodType: m.Type, MethodName: m.Name, Name: strings.TrimSpace(in.Name), Email: in.Email, Message: strings.TrimSpace(in.Message), Public: in.Public, Status: "pending", Source: "checkout", CreatedAt: now.Format(time.RFC3339Nano), CheckoutKey: key, CheckoutDigest: requestDigest, DonorUserID: donorUserID, ProjectID: in.ProjectID, ProjectName: projectName, PublicThanks: bool(in.PublicThanks)}
 		if m.Type != "custom" {
 			d.ExpiresAt = now.Add(hostedCheckoutLifetime).Format(time.RFC3339Nano)
+		}
+		if m.Type == "crypto" {
+			d.ExpiresAt = now.Add(time.Duration(s.Crypto.LifetimeMinutes) * time.Minute).Format(time.RFC3339Nano)
 		}
 		if err := payments.ValidateCheckout(m, a.checkoutRequest(d, m)); err != nil {
 			fail(w, 400, payments.SafeError(err))
@@ -253,12 +273,22 @@ func (a *App) createDonation(w http.ResponseWriter, r *http.Request) {
 			internalError(w)
 			return
 		}
+		if m.Type == "crypto" {
+			if err = a.createCrypto(tx, d, cryptoQuote); err != nil {
+				tx.Rollback()
+				internalError(w)
+				return
+			}
+		}
 		if err = tx.Commit(); err != nil {
 			internalError(w)
 			return
 		}
 	}
-	if m.Type == "custom" {
+	if m.Type == "custom" || m.Type == "crypto" {
+		if m.Type == "crypto" {
+			a.wakeCrypto()
+		}
 		a.checkoutResponse(w, d, m)
 		return
 	}
@@ -319,6 +349,17 @@ func (a *App) checkoutResponse(w http.ResponseWriter, d Donation, m payments.Met
 		checkoutURL = m.CheckoutURL
 	}
 	response := map[string]any{"id": d.ID, "status": d.Status, "status_token": d.StatusToken, "expires_at": d.ExpiresAt, "can_cancel": d.Status == "pending" && d.Source == "checkout", "project_id": d.ProjectID, "project_name": d.ProjectName, "public_thanks": d.PublicThanks}
+	if m.Type == "crypto" {
+		view, e := a.cryptoView(d.ID)
+		if e != nil {
+			internalError(w)
+			return
+		}
+		response["crypto"] = view
+		response["amount_minor"] = d.AmountMinor
+		response["currency"] = d.Currency
+		response["can_cancel"] = false
+	}
 	if d.Status == "pending" {
 		response["checkout_url"], response["qr_url"], response["instructions"] = checkoutURL, m.QRURL, m.Description
 	}
@@ -339,6 +380,15 @@ func (a *App) donationStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response := receiptStatus(d)
+	if d.MethodType == "crypto" && d.Source == "checkout" {
+		view, e := a.cryptoView(d.ID)
+		if e != nil {
+			internalError(w)
+			return
+		}
+		response["crypto"] = view
+		response["can_cancel"] = false
+	}
 	if d.Status == "pending" {
 		response["checkout_url"] = d.CheckoutURL
 		if s, err := a.settings(); err == nil {

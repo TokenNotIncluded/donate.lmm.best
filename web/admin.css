@@ -209,3 +209,6 @@ details[open] > summary { margin-bottom: 16px; }
 @media (max-width: 1000px) {
   .badge-builder { grid-template-columns: 1fr; gap: 30px; }
 }
+.crypto-network{padding:20px 0;border-bottom:1px solid var(--line,#333)}.crypto-network>.check-field{font-size:15px}.crypto-network small{color:var(--muted);font-size:12px;margin-left:6px}.crypto-network .check-group{margin:12px 0 12px 28px}.crypto-network details{margin:10px 0}.crypto-network summary{cursor:pointer;min-height:44px;padding:10px 0;color:var(--muted);font-size:12px}.crypto-network textarea{width:100%;font-family:var(--mono,monospace);font-size:12px;min-height:230px;resize:vertical}.crypto-network .help{margin:8px 0;overflow-wrap:anywhere}#crypto-form .config-section>p{margin-bottom:16px}#crypto-form .config-section>summary{cursor:pointer;min-height:44px}#crypto-form code{overflow-wrap:anywhere}
+
+#crypto-form{margin-top:30px}

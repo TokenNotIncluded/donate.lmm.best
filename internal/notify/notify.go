@@ -46,7 +46,8 @@ type Event struct {
 	ID        string `json:"id"`
 	Type      string `json:"type"`
 	CreatedAt string `json:"created_at"`
-	Donation  any    `json:"donation"`
+	Donation  any    `json:"donation,omitempty"`
+	Payment   any    `json:"payment,omitempty"`
 }
 
 // Job deliberately excludes the payload and configuration, which can contain

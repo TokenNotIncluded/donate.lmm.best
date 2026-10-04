@@ -11,6 +11,12 @@ method can be saved while it is being configured. Enabling it validates its
 required fields. The service calls fixed official API hosts and refuses
 redirects, including redirects that could leak API credentials.
 
+## On-chain stablecoins
+
+See [CRYPTO.md](CRYPTO.md) for configurable EVM/TRON/Solana networks, wallet
+requests, local QR codes, transaction verification, tolerance, finality and
+chain-event webhooks. Checkout receipts use SSE for this method.
+
 ## Waffo Pancake
 
 Waffo is the first provider in the application. Its merchant-of-record checkout
@@ -212,3 +218,23 @@ The application's donation route calls `payments.ValidateCheckout` before
 inserting a new pending donation. This non-network preflight rejects invalid
 amount/currency choices, provider ranges, incomplete credentials and return URLs
 without trapping payment-method configuration behind an unusable pending row.
+
+## Outgoing donation and chain notifications
+
+In Admin → Notifications, enable a receiver HTTPS URL and signing secret.
+The durable outbox snapshots its destination and payload at enqueue time.
+Receivers must deduplicate the JSON event `id` (or `X-Donate-Delivery`). A lost
+acknowledgement can cause delivery again with the same identifiers and body.
+
+`X-Donate-Signature-V2` is `sha256=` plus hex HMAC-SHA256(secret,
+`X-Donate-Timestamp` + "." + exact raw body). Compare signatures in constant time
+and reject delivery timestamps more than five minutes away. Each retry gets a
+fresh timestamp; event creation time remains in the signed JSON body. Do not
+reserialize JSON before signature verification. `X-Donate-Event` names the event.
+The existing `X-Donate-Signature` body-only HMAC remains available for older
+receivers. Never use outgoing notification bodies as chain-payment evidence.
+
+A receiver returns HTTP 2xx after durably accepting the event. Other statuses
+or network failures enter the existing bounded retry schedule; administrators
+can inspect delivery failures and request a retry under Notifications. The
+payment remains recorded even while notifications are unavailable.

@@ -14,7 +14,7 @@ const lifecycleTimeFormat = "2006-01-02T15:04:05.000000000Z"
 // Dates are written as UTC RFC3339Nano. Pad their fractional component before
 // comparing, so old second-resolution dates and nanosecond dates sort alike.
 const checkoutExpiryTime = "substr(expires_at,1,19) || '.' || substr(CASE WHEN substr(expires_at,20,1)='.' THEN substr(expires_at,21,length(expires_at)-21) ELSE '' END || '000000000',1,9) || 'Z'"
-const expireCheckoutSQL = "UPDATE donations SET status='expired' WHERE status='pending' AND source='checkout' AND method_type<>'custom' AND expires_at<>'' AND (" + checkoutExpiryTime + ")<=?"
+const expireCheckoutSQL = "UPDATE donations SET status='expired' WHERE status='pending' AND source='checkout' AND method_type NOT IN ('custom','crypto') AND expires_at<>'' AND (" + checkoutExpiryTime + ")<=?"
 
 func (a *App) expireDonations(ctx context.Context, now time.Time) error {
 	_, err := a.DB.ExecContext(ctx, expireCheckoutSQL, now.UTC().Format(lifecycleTimeFormat))
@@ -29,6 +29,8 @@ func (a *App) expireDonation(ctx context.Context, id string, now time.Time) erro
 // Run joins both background workers before database shutdown. A persisted
 // deadline is also checked on startup and by receipt reads after a restart.
 func (a *App) Run(ctx context.Context) {
+	cryptoDone := make(chan struct{})
+	go func() { defer close(cryptoDone); a.runCrypto(ctx) }()
 	notificationsDone := make(chan struct{})
 	go func() {
 		defer close(notificationsDone)
@@ -36,6 +38,7 @@ func (a *App) Run(ctx context.Context) {
 	}()
 	a.runCheckoutExpiry(ctx)
 	<-notificationsDone
+	<-cryptoDone
 }
 
 func (a *App) runCheckoutExpiry(ctx context.Context) {
@@ -95,6 +98,10 @@ func (a *App) cancelDonation(w http.ResponseWriter, r *http.Request) {
 	d, err := scanDonation(tx.QueryRow("SELECT "+donationColumns+" FROM donations WHERE id=?", r.PathValue("id")))
 	if err != nil || d.StatusToken == "" || subtle.ConstantTimeCompare([]byte(in.StatusToken), []byte(d.StatusToken)) != 1 {
 		fail(w, http.StatusNotFound, "记录不存在或访问令牌无效")
+		return
+	}
+	if d.MethodType == "crypto" {
+		fail(w, 409, "链上转账不能取消或自动退款")
 		return
 	}
 	if userID != "" && d.DonorUserID != "" && d.DonorUserID != userID {

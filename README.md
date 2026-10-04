@@ -6,6 +6,8 @@ Go 单文件程序内嵌网页，SQLite 保存配置、捐款和通知队列。�
 
 [![Donate](https://donate.lmm.best/badge.svg?project=donate&currency=CNY&lang=zh-CN&period=all&layout=compact&theme=dark&width=360&title=Donate)](https://donate.lmm.best/?project=donate)
 
+支持可配置的 USDT / USDC / USDG 链上收款：钱包带金额支付、本站二维码、手动交易 ID 核验、少付容差、补款、实时到账状态与签名 Webhook。主页提供 GitHub 源码链接和缓存的真实 Star 数。详见 [链上收款配置](docs/CRYPTO.md)。
+
 ## 本地运行
 
 需要 `go.mod` 指定的 Go 版本和 Make。

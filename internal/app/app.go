@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/TokenNotIncluded/donate.lmm.best/internal/auth"
+	"github.com/TokenNotIncluded/donate.lmm.best/internal/chain"
 	"github.com/TokenNotIncluded/donate.lmm.best/internal/donors"
 	"github.com/TokenNotIncluded/donate.lmm.best/internal/notify"
 	"github.com/TokenNotIncluded/donate.lmm.best/internal/payments"
@@ -30,6 +31,11 @@ import (
 )
 
 type App struct {
+	Chain              *chain.Service
+	cryptoWake         chan struct{}
+	cryptoHub          receiptHub
+	starMu             sync.Mutex
+	starCache          starSnapshot
 	DB                 *sql.DB
 	Auth               *auth.Manager
 	Donors             *donors.Manager
@@ -113,6 +119,8 @@ func New(dataDir, publicURL string, assets fs.FS) (*App, error) {
 	}
 	db.SetMaxOpenConns(1)
 	a := &App{DB: db, DataDir: dataDir, PublicURL: normalizedPublicOrigin(u), assets: assets, Payments: payments.New(), limits: map[string]limit{}, keys: map[string]*keyLock{}}
+	a.Chain = chain.New()
+	a.cryptoWake = make(chan struct{}, 1)
 	proxyCIDRs := os.Getenv("DONATE_TRUSTED_PROXIES")
 	if proxyCIDRs == "" {
 		proxyCIDRs = "127.0.0.1/32,::1/128"
@@ -163,6 +171,9 @@ func (a *App) migrate() error {
 		return e
 	}
 	if e = a.migrateProjects(); e != nil {
+		return e
+	}
+	if e = a.migrateCrypto(); e != nil {
 		return e
 	}
 	var count int
@@ -224,6 +235,8 @@ func (a *App) Routes() http.Handler {
 		respond(w, 200, map[string]string{"status": "ok"})
 	})
 	mux.HandleFunc("GET /api/site", a.site)
+	a.cryptoRoutes(mux)
+	mux.HandleFunc("GET /api/source", a.sourceInfo)
 	mux.HandleFunc("GET /terms", a.legal)
 	mux.HandleFunc("GET /privacy", a.legal)
 	mux.HandleFunc("GET /api/stats", a.publicStats)
@@ -312,6 +325,15 @@ func (a *App) serveAssets(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "页面资源加载失败", http.StatusInternalServerError)
 			return
 		}
+	}
+	sum := sha256.Sum256(content)
+	version := hex.EncodeToString(sum[:])
+	w.Header().Set("ETag", `"`+version+`"`)
+	// Imported modules have stable URLs. Revalidate them so a new page cannot
+	// accidentally reuse a previous release's payment logic. Content-versioned
+	// dependencies keep their existing cache lifetime.
+	if (strings.HasSuffix(path, ".js") || strings.HasSuffix(path, ".css")) && r.URL.Query().Get("v") != version {
+		w.Header().Set("Cache-Control", "no-cache")
 	}
 	http.ServeContent(w, r, path, time.Time{}, bytes.NewReader(content))
 }

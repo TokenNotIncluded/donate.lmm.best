@@ -16,6 +16,12 @@
   <script type="module" src="/app.js"></script>
 </head>
 <body>
+  <!-- THESIS: Make a chain payment as direct as the existing donation form.
+       OWN-WORLD: Donate's black and white coffee identity, thin borders, native controls.
+       STORY: Choose asset and network; approve a prefilled transfer or scan and paste its ID.
+       FIRST VIEWPORT: Compact centered form; payment selection above the primary action.
+       FORM: Local extension of the pinned compact form, with exact receipt amounts.
+       FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance -->
   <a class="skip" href="#donation-form" data-i18n="skip">跳到捐赠</a>
   <div class="page">
     <header class="site-header">
@@ -46,6 +52,7 @@
           <p id="amount-error" class="field-error" role="alert" hidden></p>
           <div id="presets" class="presets" aria-label="预设金额"></div>
           <fieldset class="payment-choice"><legend data-i18n="paymentMethod">支付方式</legend><div id="payment-methods" class="payment-methods"><p class="empty-note" data-i18n="loading">正在加载…</p></div></fieldset>
+          <div id="crypto-choice" class="crypto-choice" hidden><label for="crypto-asset" data-crypto="asset">稳定币</label><select id="crypto-asset"></select><label for="crypto-network" data-crypto="network">网络</label><select id="crypto-network"></select><p id="crypto-price-note" class="crypto-note"></p></div>
           <details class="donor-details"><summary><span data-i18n="leaveNote">信息（选填）</span><svg class="icon" data-icon="plus" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use></use></svg></summary><div class="donor-fields" id="donor-fields">
             <label id="name-field"><span data-i18n="nameOptional">称呼</span><input name="name" id="donor-name" maxlength="120" autocomplete="name"></label>
             <label id="email-field"><span data-i18n="emailOptional">邮箱</span><input name="email" id="donor-email" type="email" maxlength="254" autocomplete="email"></label>
@@ -59,6 +66,7 @@
         </form>
         <section class="checkout-status" id="checkout-status" tabindex="-1" hidden aria-labelledby="checkout-title">
           <div class="checkout-heading"><svg id="checkout-icon" class="icon" data-icon="clock" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use></use></svg><h2 id="checkout-title"></h2></div><p id="checkout-copy"></p><div class="checkout-amount" id="checkout-amount"></div>
+          <div id="crypto-panel" class="crypto-panel" hidden></div>
           <div id="checkout-qr-container" hidden></div>
           <p id="checkout-instructions" class="instructions" hidden></p>
           <a id="checkout-link" class="donate-button" target="_blank" rel="noopener noreferrer" hidden><span data-i18n="openCheckout">前往支付</span><svg class="icon" data-icon="external" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use></use></svg></a>
@@ -70,6 +78,7 @@
           <h2 id="thanks-title" data-i18n="thankYou">谢谢你的捐赠。</h2>
           <p id="thanks-project" class="thanks-project" hidden></p>
           <p class="thanks-receipt"><span id="thanks-amount"></span><span id="thanks-currency"></span></p>
+          <div id="thanks-crypto-summary" class="crypto-summary" hidden></div>
           <button id="thanks-back" class="donate-button" type="button"><span data-i18n="backToDonation">返回捐赠页</span><svg class="icon icon-back" data-icon="arrow-right" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use></use></svg></button>
         </section>
       </section>
@@ -77,6 +86,7 @@
       <section class="support-section" id="support-section" aria-label="捐赠" hidden><div id="recent-support" class="recent-support"></div></section>
     </main>
     <footer class="site-footer"><p id="site-footer-text" hidden></p><nav aria-label="Legal"><button class="text-link" type="button" data-policy="terms" data-i18n="terms">用户协议</button><button class="text-link" type="button" data-policy="privacy" data-i18n="privacy">隐私政策</button><a id="contact-link" class="text-link" hidden data-i18n="contact">联系</a><button id="donor-account-entry" class="text-link" type="button" aria-haspopup="dialog" aria-controls="donor-dialog"><svg class="icon" data-icon="user" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use></use></svg><span id="donor-account-label">登录</span></button></nav></footer>
+    <a id="source-link" class="source-link" href="https://github.com/TokenNotIncluded/donate.lmm.best" target="_blank" rel="noopener noreferrer"><span data-crypto="source">GitHub 源代码</span><span id="source-stars" hidden><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z"/></svg><span id="star-count"></span></span></a>
   </div>
   <dialog class="policy-dialog" id="policy-dialog"><div class="policy-header"><h2 id="policy-title"></h2><button type="button" id="close-policy" aria-label="关闭"><svg class="icon" data-icon="close" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use></use></svg></button></div><div id="policy-content"></div></dialog>
   <dialog class="policy-dialog donor-dialog" id="donor-dialog" aria-labelledby="donor-title">
