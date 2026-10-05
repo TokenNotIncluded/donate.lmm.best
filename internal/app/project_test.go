@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"math"
 	"net/http"
@@ -13,6 +14,56 @@ import (
 	"testing/fstest"
 	"time"
 )
+
+func TestProjectAcceptsOtherCurrenciesWithoutMixingGoalProgress(t *testing.T) {
+	a := testApp(t)
+	testSettings(t, a, customMethod())
+	p := projectCreateFixture(t, a, "multi-currency", "CNY", 100000, true)
+	for _, unit := range []string{"USD", "CNY", "JPY"} {
+		rr := requestJSON(t, a.Routes(), http.MethodPost, "/api/donations", donationInput{AmountMinor: 500, Currency: unit, MethodID: "qr", ProjectID: p.ID, AcceptedTerms: true}, nil)
+		expectStatus(t, rr, http.StatusOK)
+		d := decodeResponse[checkoutResponse](t, rr)
+		expectStatus(t, confirmCustom(t, a, d.ID, map[string]string{"reference": "multi-" + unit}), http.StatusOK)
+	}
+	state, err := a.publicProject(context.Background(), p.ID)
+	if err != nil || state.Currency != "CNY" || state.RaisedMinor != 500 || state.Count != 1 || state.Progress != 0.5 || len(state.ByCurrency) != 3 {
+		t.Fatalf("unlike currencies contaminated goal: %#v, %v", state, err)
+	}
+	for _, total := range state.ByCurrency {
+		if total.TotalMinor != 500 || total.Count != 1 {
+			t.Fatalf("incorrect currency total: %#v", total)
+		}
+	}
+}
+
+func TestCryptoDonationCanFundCNYProject(t *testing.T) {
+	f := newCryptoFixture(t)
+	p := projectCreateFixture(t, f.a, "crypto-cny", "CNY", 100000, true)
+	settings, err := f.a.settings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := requestJSON(t, f.a.Routes(), http.MethodPost, "/api/donations", donationInput{AmountMinor: 1000, Currency: "USD", MethodID: "crypto", CryptoNetwork: settings.Crypto.Networks[0].ID, CryptoAsset: "USDT", ProjectID: p.ID, AcceptedTerms: true}, nil)
+	expectStatus(t, rr, http.StatusOK)
+	d := decodeResponse[checkoutResponse](t, rr)
+	stored, err := f.a.donation(d.ID)
+	if err != nil || stored.ProjectID != p.ID || stored.Currency != "USD" {
+		t.Fatalf("crypto checkout lost its project or denomination: %#v, %v", stored, err)
+	}
+	state := projectReadFixture(t, f.a, p.ID)
+	if state.RaisedMinor != 0 || state.Count != 0 {
+		t.Fatal("unpaid USD quote raised CNY goal")
+	}
+	f.amounts[cryptoHash("a")] = 10000000
+	result := f.submit(t, d, cryptoHash("a"))
+	if result["status"] != "confirmed" {
+		t.Fatalf("fixture did not settle: %v", result)
+	}
+	settled, err := f.a.publicProject(context.Background(), p.ID)
+	if err != nil || settled.RaisedMinor != 0 || settled.Count != 0 || len(settled.ByCurrency) != 1 || settled.ByCurrency[0].Currency != "USD" || settled.ByCurrency[0].TotalMinor != 1000 {
+		t.Fatalf("USD chain settlement mixed into CNY goal: %#v, %v", settled, err)
+	}
+}
 
 type projectResult struct {
 	ID          string  `json:"id"`
@@ -249,7 +300,7 @@ func TestProjectDonationBindingRejectsInvalidTargetsAndKeepsHistoryPrivate(t *te
 	two := projectCreateFixture(t, a, "second", "USD", 20000, true)
 	archived := projectCreateFixture(t, a, "closed", "USD", 10000, false)
 	owner, other := donorSessionFixture(t, a), donorSessionFixture(t, a)
-	for _, invalid := range []struct{ project, currency string }{{"missing", "USD"}, {archived.ID, "USD"}, {one.ID, "JPY"}} {
+	for _, invalid := range []struct{ project, currency string }{{"missing", "USD"}, {archived.ID, "USD"}, {one.ID, "XXX"}} {
 		in := map[string]any{"amount_minor": 500, "currency": invalid.currency, "method_id": "qr", "project_id": invalid.project, "accepted_terms": true}
 		expectStatus(t, requestJSON(t, a.Routes(), http.MethodPost, "/api/donations", in, nil), http.StatusBadRequest)
 		expectStatus(t, requestJSON(t, http.HandlerFunc(a.manualDonation), http.MethodPost, "/api/admin/donations", in, nil), http.StatusBadRequest)

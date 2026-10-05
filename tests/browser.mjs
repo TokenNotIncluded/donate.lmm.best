@@ -517,10 +517,17 @@ async function projectLifecycleScenarios(admin,adminContext,donorContext,methodI
       assert.equal(await guest.locator('#currency').inputValue(),'CNY');
       await guest.locator('#language').selectOption('en');
       assert.equal(await guest.locator('#currency').inputValue(),'CNY');
+      assert.equal(await guest.locator('#currency').isEnabled(),true);
+      await guest.locator('#currency').selectOption('USD');
+      await guest.locator('#language').selectOption('zh-CN');
+      assert.equal(await guest.locator('#currency').inputValue(),'USD');
+      await guest.locator('#language').selectOption('en');
+      assert.equal(await guest.locator('#currency').inputValue(),'USD');
+      await guest.locator('#currency').selectOption('CNY');
       assert.equal(Number(await guest.locator('#project-progress-value').getAttribute('width')),0);
       const before=(await api(adminContext,'/api/admin/donations')).data.total;
       for(const invalid of [
-        {project_id:project.id,currency:'USD',amount_minor:1000},
+        {project_id:project.id,currency:'XXX',amount_minor:1000},
         {project_id:'missing-fixture',currency:'CNY',amount_minor:1000},
         {project_id:project.id,currency:'CNY',amount_minor:1000.5},
         ...[null,'true',1].map(public_thanks => ({project_id:project.id,currency:'CNY',amount_minor:1000,public_thanks}))
@@ -530,6 +537,23 @@ async function projectLifecycleScenarios(admin,adminContext,donorContext,methodI
       }
       assert.equal((await api(adminContext,'/api/admin/donations')).data.total,before);
       assert.equal((await api(guestContext,'/api/projects/missing-fixture')).status,404);
+    });
+    await step('A CNY project accepts USD donations and shows them separately from its goal',async () => {
+      const foreign=await createCustomDonation(guest,5,{currency:'USD'});
+      assert.equal(foreign.donation.project_id,project.id);
+      assert.equal(foreign.request.postDataJSON().currency,'USD');
+      await confirmOffline(foreign.donation);
+      const state=await projectState();
+      assert.equal(state.raised_minor,0);
+      assert.equal(state.count,0);
+      assert.deepEqual(state.by_currency,[{currency:'USD',total_minor:500,count:1}]);
+      await guest.goto(`${base}/?project=${project.id}`);
+      await visible(guest,'#project-other-raised');
+      await textIncludes(guest,'#project-other-raised','5.00');
+      for(const width of [1440,390,320]) {
+        await guest.setViewportSize({width,height:844});
+        await noOverflow(guest);
+      }
     });
     await step('Guest and donor cancel pending project donations; hosted expiry is server-confirmed and neither terminal state raises the goal',async () => {
       cancelledGuest=(await createCustomDonation(guest,8,{currency:'CNY'})).donation;

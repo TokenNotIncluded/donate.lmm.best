@@ -67,11 +67,11 @@ curl http://localhost:8080/api/donations \
 
 ## 项目与公开致谢
 
-后台创建项目使用 `{id,name,url,currency,target_minor,active}`，`id` 为 1–64 位小写字母、数字或中间连字符，创建后固定。`target_minor` 为正整数最小货币单位，例如 CNY 100000 是 ¥1,000。项目链接可空，否则要求 HTTPS。项目返回额外的 `{raised_minor,count,progress,donate_url,badge_url,created_at,updated_at}`；`progress` 为 0–100 的百分比，超出目标的实际已筹金额不会截断。只累计该项目、相同币种、已经确认且到账时间不在未来的记录，退款不计入。
+后台创建项目使用 `{id,name,url,currency,target_minor,active}`，`id` 为 1–64 位小写字母、数字或中间连字符，创建后固定。`target_minor` 为正整数最小货币单位，例如 CNY 100000 是 ¥1,000。项目链接可空，否则要求 HTTPS。项目返回额外的 `{raised_minor,count,progress,donate_url,badge_url,created_at,updated_at}`；`progress` 为 0–100 的百分比，超出目标的实际已筹金额不会截断。目标进度只累计该项目、目标币种、已经确认且到账时间不在未来的记录，退款不计入。`by_currency` 分币种提供 `{currency,total_minor,count}`；其他币种单独展示，不自动折算或混加。
 
-捐赠请求和后台手工录入可增加 `project_id`，为空表示通用捐赠。非空时必须是启用项目且币种与项目一致，否则拒绝创建；旧记录不自动归属项目。已创建记录不能改项目。付款状态、后台记录、CSV 和私人到账通知包含项目标识；项目改名不改变捐款归属。
+捐赠请求和后台手工录入可增加 `project_id`，为空表示通用捐赠。非空时必须是启用项目且币种有效，否则拒绝创建；旧记录不自动归属项目。已创建记录不能改项目。付款状态、后台记录、CSV 和私人到账通知包含项目标识；项目改名不改变捐款归属。
 
-`/?project=magicnet` 显示该项目进度并固定币种。`/badge.svg?project=magicnet` 展示其已筹金额、目标及进度，使用全部时间与项目币种；显式传入不一致币种或非 `all` 周期返回 400。未知或归档项目返回 404。SVG 不含个人信息；在 README 外层使用项目 `donate_url` 作为点击链接。
+`/?project=magicnet` 显示该项目进度，默认选中目标币种；捐赠者可选择站点启用的其他币种，稳定币支付仍以 USD 计价。`/badge.svg?project=magicnet` 展示其已筹金额、目标及进度，使用全部时间与项目币种；显式传入不一致币种或非 `all` 周期返回 400。未知或归档项目返回 404。SVG 不含个人信息；在 README 外层使用项目 `donate_url` 作为点击链接。
 
 新增 `public_thanks` 是每笔捐赠独立的布尔许可，默认 `false`，允许维护者在专门制作的致谢网页或小游戏中展示昵称，未填写昵称则按匿名处理。它与原 `public`（本站公开称呼及留言）互不推断，旧记录不会自动获得新用途许可。后台可核对、筛选授权，待付款记录不作为已完成捐赠致谢；邮箱始终不公开。
 

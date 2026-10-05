@@ -54,9 +54,9 @@ ui.en.historyExpired='Expired';
 ui['zh-CN'].verifyingTitle='正在核实';
 ui['zh-TW'].verifyingTitle='正在核實';
 ui.en.verifyingTitle='Verifying payment';
-Object.assign(ui['zh-CN'],{projects:'筹款项目',raised:'已筹',goal:'目标',projectUnavailable:'项目不存在或已停止筹款。',projectLoadFailed:'项目加载失败，请刷新重试。'});
-Object.assign(ui['zh-TW'],{projects:'募款專案',raised:'已募',goal:'目標',projectUnavailable:'專案不存在或已停止募款。',projectLoadFailed:'專案載入失敗，請重新整理。'});
-Object.assign(ui.en,{projects:'Projects',raised:'Raised',goal:'Goal',projectUnavailable:'Project not found or closed.',projectLoadFailed:'Could not load projects. Refresh to retry.'});
+Object.assign(ui['zh-CN'],{otherRaised:'其他币种已筹（不折算至目标）：',projects:'筹款项目',raised:'已筹',goal:'目标',projectUnavailable:'项目不存在或已停止筹款。',projectLoadFailed:'项目加载失败，请刷新重试。'});
+Object.assign(ui['zh-TW'],{otherRaised:'其他幣別已募（不折算至目標）：',projects:'募款專案',raised:'已募',goal:'目標',projectUnavailable:'專案不存在或已停止募款。',projectLoadFailed:'專案載入失敗，請重新整理。'});
+Object.assign(ui.en,{otherRaised:'Other currencies raised (excluded from goal):',projects:'Projects',raised:'Raised',goal:'Goal',projectUnavailable:'Project not found or closed.',projectLoadFailed:'Could not load projects. Refresh to retry.'});
 Object.assign(ui['zh-CN'],{publicThanks:'允许公开致谢',publicThanksNote:'昵称可用于作者的致谢网页或小游戏',announcementLink:'查看'});
 Object.assign(ui['zh-TW'],{publicThanks:'允許公開致謝',publicThanksNote:'暱稱可用於作者的致謝網頁或小遊戲',announcementLink:'查看'});
 Object.assign(ui.en,{publicThanks:'Allow public thanks',publicThanksNote:"Nickname may appear on the author's thank-you pages or mini games.",announcementLink:'Open'});
@@ -145,6 +145,9 @@ function renderProjects() {
   $('#project-error-message').textContent=projectError ? t(projectError) : '';
   if(activeProject){
     $('#project-name').textContent=activeProject.name;
+    const otherTotals=(activeProject.by_currency || []).filter(total=>total.currency!==activeProject.currency && total.total_minor>0);
+    $('#project-other-raised').textContent=otherTotals.length ? `${t('otherRaised')} ${otherTotals.map(total=>`${money(total.total_minor,total.currency)} ${total.currency}`).join(' · ')}` : '';
+    $('#project-other-raised').hidden=!otherTotals.length;
     $('#project-raised').textContent=money(activeProject.raised_minor,activeProject.currency);
     $('#project-goal').textContent=money(activeProject.target_minor,activeProject.currency);
     $('#project-progress-value').setAttribute('width',String(Math.min(100,Math.max(0,activeProject.progress))));
@@ -172,7 +175,7 @@ async function restoreReceiptProject(status,id,sequence) {
   let error='';
   if(projectId && !project){try {project=await readProject(projectId);}catch(failure){error=failure.status===404?'projectUnavailable':'projectLoadFailed';}}
   if(activeCheckout?.id!==id || sequence!==checkoutSequence)return;
-  activeProject=project || null;projectError=error;renderProjects();setCurrency(activeProject?.currency || currency);
+  activeProject=project || null;projectError=error;renderProjects();setCurrency(currency);
 }
 function applyLanguage() {
   chainUI.translate();
@@ -206,10 +209,10 @@ function applyLanguage() {
   renderDonorAccount();
 }
 function setCurrency(value, keepAmount = true) {
-  const available = activeProject ? [activeProject.currency] : site?.currencies?.length ? site.currencies : ['USD','CNY','TWD','EUR','GBP','HKD','JPY'];
-  currency = activeProject?.currency || (available.includes(value) ? value : available.includes(site?.currency) ? site.currency : available[0]);
+  const available = site?.currencies?.length ? site.currencies : ['USD','CNY','TWD','EUR','GBP','HKD','JPY'];
+  currency = available.includes(value) ? value : available.includes(site?.currency) ? site.currency : available[0];
   $('#currency').replaceChildren(...available.map(unit=>{const option=document.createElement('option');option.value=unit;option.textContent=unit;return option;}));
-  $('#currency').disabled=!!projectId;
+  $('#currency').disabled=projectBlocked();
   $('#currency').value=currency;
   $('#currency-symbol').textContent=currencySymbol(currency);
   if(!keepAmount || !$('#amount').value) $('#amount').value=String(site?.presets?.[1] || site?.presets?.[0] || 15);
@@ -257,7 +260,7 @@ function renderMethods() {
     const radio=document.createElement('input');radio.type='radio';radio.name='method_id';radio.value=method.id;radio.required=true;
     radio.addEventListener('change',()=>{if(method.type==='crypto' && currency!=='USD'){setCurrency('USD');return;}renderRandomAmount();chainUI.renderChoice(site,method.type==='crypto');});
     radio.checked=old ? method.id===old : index===0;
-    const cryptoUnavailable=method.type==='crypto' && (!site.crypto_options?.length || (activeProject && activeProject.currency!=='USD'));
+    const cryptoUnavailable=method.type==='crypto' && (!site.crypto_options?.length || !(site.currencies || ['USD']).includes('USD'));
     const unavailable=(method.type==='waffo' && currency==='TWD') || cryptoUnavailable;radio.disabled=unavailable;
     const body=document.createElement('span');body.className='method-body';const name=document.createElement('span');name.className='method-title';name.textContent=method.name;body.append(name);
     if(method.description || unavailable) {const description=document.createElement('span');description.className='method-description';description.textContent=cryptoUnavailable ? chainUI.t('price') : unavailable ? t('unsupportedWaffo') : method.description;body.append(description);}
@@ -445,7 +448,7 @@ $('#amount').addEventListener('input',()=>{$('#amount-error').hidden=true;markPr
 $('#random-amount').addEventListener('click',randomizeAmount);
 $('#currency').addEventListener('change',()=>{const selected=$('input[name=method_id]:checked');if($('#currency').value!=='USD' && site.methods.find(m=>m.id===selected?.value)?.type==='crypto'){selected.checked=false;const next=site.methods.find(m=>m.type!=='crypto');if(next)$(`input[name=method_id][value="${CSS.escape(next.id)}"]`).checked=true;}setCurrency($('#currency').value);});
 $('#crypto-asset').addEventListener('change',()=>chainUI.renderNetworks(site));
-$('#language').addEventListener('change',()=>{locale=$('#language').value;storeValue('token-language',locale);applyLanguage();setCurrency(site?.language_currencies?.[locale] || {'zh-CN':'CNY','zh-TW':'TWD',en:'USD'}[locale]);renderRecent();});
+$('#language').addEventListener('change',()=>{locale=$('#language').value;storeValue('token-language',locale);applyLanguage();setCurrency(activeProject ? currency : site?.language_currencies?.[locale] || {'zh-CN':'CNY','zh-TW':'TWD',en:'USD'}[locale]);renderRecent();});
 $$('[data-policy]').forEach(button=>button.addEventListener('click',()=>showPolicy(button.dataset.policy)));
 $('#close-policy').addEventListener('click',()=>$('#policy-dialog').close());
 $('#policy-dialog').addEventListener('click',event=>{if(event.target===$('#policy-dialog')){const box=event.target.getBoundingClientRect();if(event.clientX<box.left || event.clientX>box.right || event.clientY<box.top || event.clientY>box.bottom)event.target.close();}});
@@ -663,7 +666,7 @@ async function start(){
     $('#public-consent-label').hidden=!site.collect_name && !site.collect_message;
     $('.donor-details').hidden=!site.collect_name && !site.collect_email && !site.collect_message;
     if(site.contact_email){$('#contact-link').href=`mailto:${site.contact_email}`;$('#contact-link').hidden=false;}
-    chainUI.source();applyLanguage();setCurrency(site.language_currencies?.[locale] || {'zh-CN':'CNY','zh-TW':'TWD',en:'USD'}[locale],false);renderRecent();
+    chainUI.source();applyLanguage();setCurrency(activeProject?.currency || site.language_currencies?.[locale] || {'zh-CN':'CNY','zh-TW':'TWD',en:'USD'}[locale],false);renderRecent();
     if(returnedReceipt){showCheckout(returnedReceipt);await pollStatus(true);}
   }catch(error){
     applyLanguage();$('#payment-methods').replaceChildren();const note=document.createElement('p');note.className='empty-note';note.textContent=t('loadFailed');$('#payment-methods').append(note);$('#donate-button').disabled=true;

@@ -15,20 +15,27 @@ import (
 	"unicode/utf8"
 )
 
+type ProjectCurrencyTotal struct {
+	Currency   string `json:"currency"`
+	TotalMinor int64  `json:"total_minor"`
+	Count      int64  `json:"count"`
+}
+
 type Project struct {
-	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	URL         string  `json:"url"`
-	Currency    string  `json:"currency"`
-	TargetMinor int64   `json:"target_minor"`
-	RaisedMinor int64   `json:"raised_minor"`
-	Count       int64   `json:"count"`
-	Progress    float64 `json:"progress"`
-	Active      bool    `json:"active"`
-	DonateURL   string  `json:"donate_url"`
-	BadgeURL    string  `json:"badge_url"`
-	CreatedAt   string  `json:"created_at"`
-	UpdatedAt   string  `json:"updated_at"`
+	ByCurrency  []ProjectCurrencyTotal `json:"by_currency"`
+	ID          string                 `json:"id"`
+	Name        string                 `json:"name"`
+	URL         string                 `json:"url"`
+	Currency    string                 `json:"currency"`
+	TargetMinor int64                  `json:"target_minor"`
+	RaisedMinor int64                  `json:"raised_minor"`
+	Count       int64                  `json:"count"`
+	Progress    float64                `json:"progress"`
+	Active      bool                   `json:"active"`
+	DonateURL   string                 `json:"donate_url"`
+	BadgeURL    string                 `json:"badge_url"`
+	CreatedAt   string                 `json:"created_at"`
+	UpdatedAt   string                 `json:"updated_at"`
 }
 
 type projectInput struct {
@@ -107,34 +114,49 @@ func ProjectProgress(raised, target int64) float64 {
 }
 
 func (a *App) projectTotals(ctx context.Context, q projectQueryer, p *Project, now time.Time) error {
-	rows, err := q.QueryContext(ctx, "SELECT amount_minor,paid_at FROM donations WHERE project_id=? AND status='confirmed' AND currency=?", p.ID, p.Currency)
+	p.ByCurrency = []ProjectCurrencyTotal{}
+	totals := map[string]*ProjectCurrencyTotal{}
+	rows, err := q.QueryContext(ctx, "SELECT currency,amount_minor,paid_at FROM donations WHERE project_id=? AND status='confirmed' ORDER BY currency", p.ID)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var amount int64
-		var rawPaid string
-		if err = rows.Scan(&amount, &rawPaid); err != nil {
+		var rawPaid, unit string
+		if err = rows.Scan(&unit, &amount, &rawPaid); err != nil {
 			return err
 		}
 		paid, parseErr := time.Parse(time.RFC3339Nano, rawPaid)
 		if parseErr != nil || paid.After(now) || amount <= 0 {
 			continue
 		}
-		// A bounded streaming sum avoids SQLite SUM integer overflow. The ledger
-		// remains intact, and a raised amount is never clipped to the target.
-		if amount > math.MaxInt64-p.RaisedMinor {
-			p.RaisedMinor = math.MaxInt64
-		} else {
-			p.RaisedMinor += amount
+		total := totals[unit]
+		if total == nil {
+			total = &ProjectCurrencyTotal{Currency: unit}
+			totals[unit] = total
 		}
-		if p.Count < math.MaxInt64 {
-			p.Count++
+		// Never add unlike currencies, and keep sums safe from integer overflow.
+		if amount > math.MaxInt64-total.TotalMinor {
+			total.TotalMinor = math.MaxInt64
+		} else {
+			total.TotalMinor += amount
+		}
+		if total.Count < math.MaxInt64 {
+			total.Count++
 		}
 	}
 	if err = rows.Err(); err != nil {
 		return err
+	}
+	for _, unit := range []string{"USD", "EUR", "GBP", "CNY", "TWD", "HKD", "JPY"} {
+		if total := totals[unit]; total != nil {
+			p.ByCurrency = append(p.ByCurrency, *total)
+		}
+	}
+	if total := totals[p.Currency]; total != nil {
+		p.RaisedMinor = total.TotalMinor
+		p.Count = total.Count
 	}
 	p.Progress = ProjectProgress(p.RaisedMinor, p.TargetMinor)
 	a.projectLinks(p)
@@ -402,16 +424,16 @@ func validateDonationProject(ctx context.Context, q projectQueryer, id, currency
 	if !validProjectID(id) {
 		return "", errors.New("项目标识无效")
 	}
-	var name, projectCurrency string
-	err := q.QueryRowContext(ctx, "SELECT name,currency FROM projects WHERE id=? AND active=1", id).Scan(&name, &projectCurrency)
+	var name string
+	err := q.QueryRowContext(ctx, "SELECT name FROM projects WHERE id=? AND active=1", id).Scan(&name)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", errors.New("项目不存在或已归档")
 	}
 	if err != nil {
 		return "", err
 	}
-	if currency != projectCurrency {
-		return "", errors.New("捐赠币种需与项目币种相同")
+	if _, ok := supportedCurrencies[currency]; !ok {
+		return "", errors.New("捐赠币种无效")
 	}
 	return name, nil
 }
